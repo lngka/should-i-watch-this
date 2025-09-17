@@ -9,16 +9,24 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-	const { url } = await req.json();
-	if (!url || typeof url !== "string") return NextResponse.json({ error: "Missing url" }, { status: 400 });
+	try {
+		const { url } = await req.json();
+		if (!url || typeof url !== "string") return NextResponse.json({ error: "Missing url" }, { status: 400 });
 
-	// Basic YouTube URL validation
-	if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-		return NextResponse.json({ error: "Please provide a valid YouTube URL" }, { status: 400 });
-	}
+		// Basic YouTube URL validation
+		if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+			return NextResponse.json({ error: "Please provide a valid YouTube URL" }, { status: 400 });
+		}
 
-	console.log(`Creating job for URL: ${url}`);
-	const job = await prisma.job.create({ data: { videoUrl: url } });
+		console.log(`Creating job for URL: ${url}`);
+		
+		// Check if required environment variables are set
+		if (!process.env.OPENAI_API_KEY) {
+			console.error("OPENAI_API_KEY environment variable is not set");
+			return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+		}
+
+		const job = await prisma.job.create({ data: { videoUrl: url } });
 
 	// In-memory worker path: run in background
 	(async () => {
@@ -74,7 +82,12 @@ export async function POST(req: Request) {
 		}
 	})();
 
-	await enqueueJob({ videoUrl: url });
-	return NextResponse.json({ jobId: job.id }, { status: 202 });
+		await enqueueJob({ videoUrl: url });
+		return NextResponse.json({ jobId: job.id }, { status: 202 });
+	} catch (error) {
+		console.error("Error in POST /api/analyze:", error);
+		const message = error instanceof Error ? error.message : "Unknown error occurred";
+		return NextResponse.json({ error: message }, { status: 500 });
+	}
 }
 

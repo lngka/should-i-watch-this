@@ -3,9 +3,7 @@ import { YoutubeTranscript } from "youtube-transcript";
 export async function fetchCaptions(videoUrl: string): Promise<string | null> {
 	try {
 		console.log(`Attempting to fetch captions for: ${videoUrl}`);
-		const transcript = await YoutubeTranscript.fetchTranscript(videoUrl, {
-			type: "both",
-		});
+		const transcript = await YoutubeTranscript.fetchTranscript(videoUrl);
 		if (!transcript?.length) {
 			console.log("No captions found");
 			return null;

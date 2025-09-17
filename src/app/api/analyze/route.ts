@@ -28,23 +28,67 @@ export async function POST(req: Request) {
 
 		const job = await prisma.job.create({ data: { videoUrl: url } });
 
-	// In-memory worker path: run in background
+	// In-memory worker path: run in background with timeout
 	(async () => {
+		const JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
+		let timeoutId: NodeJS.Timeout | null = null;
+		
 		try {
 			await prisma.job.update({ where: { id: job.id }, data: { status: "RUNNING" } });
 			memoryQueue.setRunning(job.id);
 			
+			// Set up timeout to prevent jobs from hanging indefinitely
+			timeoutId = setTimeout(async () => {
+				console.error(`Job ${job.id} timed out after ${JOB_TIMEOUT_MS}ms`);
+				try {
+					await prisma.job.update({ 
+						where: { id: job.id }, 
+						data: { status: "FAILED", errorMessage: "Job timed out after 10 minutes" } 
+					});
+					memoryQueue.setFailed(job.id);
+				} catch (timeoutError) {
+					console.error(`Failed to update job ${job.id} status after timeout:`, timeoutError);
+				}
+			}, JOB_TIMEOUT_MS);
+			
 			console.log(`Starting analysis for job ${job.id}`);
-			let transcript = await fetchCaptions(url);
+			
+			// Step 1: Fetch captions with timeout
+			console.log(`Step 1: Fetching captions for ${url}`);
+			let transcript = await Promise.race([
+				fetchCaptions(url),
+				new Promise<string | null>((_, reject) => 
+					setTimeout(() => reject(new Error("Caption fetch timeout")), 30000)
+				)
+			]);
+			
 			if (!transcript) {
 				console.log(`No captions found for ${url}, falling back to Whisper`);
-				transcript = await transcribeWithWhisper(url);
+				// Step 2: Whisper transcription with timeout
+				console.log(`Step 2: Starting Whisper transcription`);
+				transcript = await Promise.race([
+					transcribeWithWhisper(url),
+					new Promise<string>((_, reject) => 
+						setTimeout(() => reject(new Error("Whisper transcription timeout")), 8 * 60 * 1000) // 8 minutes for Whisper
+					)
+				]);
 			}
+			
 			console.log(`Got transcript, length: ${transcript.length}`);
 			
-			const analysis: AnalysisOutput = await analyzeTranscript(transcript, url);
+			// Step 3: Analysis with timeout
+			console.log(`Step 3: Starting analysis`);
+			const analysis: AnalysisOutput = await Promise.race([
+				analyzeTranscript(transcript, url),
+				new Promise<AnalysisOutput>((_, reject) => 
+					setTimeout(() => reject(new Error("Analysis timeout")), 2 * 60 * 1000) // 2 minutes for analysis
+				)
+			]);
+			
 			console.log(`Analysis complete for job ${job.id}`);
 			
+			// Step 4: Save to database
+			console.log(`Step 4: Saving analysis to database`);
 			const created = await prisma.analysis.create({
 				data: {
 					oneLiner: analysis.oneLiner,
@@ -56,6 +100,8 @@ export async function POST(req: Request) {
 				},
 			});
 			
+			// Step 5: Save claims and spot checks
+			console.log(`Step 5: Saving claims and spot checks`);
 			for (const c of analysis.claims) {
 				const claim = await prisma.claim.create({
 					data: {
@@ -71,14 +117,31 @@ export async function POST(req: Request) {
 				}
 			}
 			
+			// Clear timeout and mark as completed
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+				timeoutId = null;
+			}
+			
 			await prisma.job.update({ where: { id: job.id }, data: { status: "COMPLETED" } });
 			memoryQueue.setCompleted(job.id, analysis);
 			console.log(`Job ${job.id} completed successfully`);
 		} catch (e) {
 			console.error(`Job ${job.id} failed:`, e);
 			const message = (e instanceof Error) ? e.message : String(e);
-			await prisma.job.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: message } });
-			memoryQueue.setFailed(job.id);
+			
+			// Clear timeout if it exists
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+				timeoutId = null;
+			}
+			
+			try {
+				await prisma.job.update({ where: { id: job.id }, data: { status: "FAILED", errorMessage: message } });
+				memoryQueue.setFailed(job.id);
+			} catch (dbError) {
+				console.error(`Failed to update job ${job.id} status in database:`, dbError);
+			}
 		}
 	})();
 

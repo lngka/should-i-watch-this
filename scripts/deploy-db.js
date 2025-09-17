@@ -3,15 +3,14 @@
 const { PrismaClient } = require('@prisma/client');
 
 async function deployDatabase() {
-  console.log('Deploying database schema to Turso...');
+  console.log('Deploying database schema to Neon...');
   
   // Check if environment variables are set
-  if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
-    console.error('❌ Missing required environment variables:');
-    console.error('   TURSO_DATABASE_URL:', !!process.env.TURSO_DATABASE_URL);
-    console.error('   TURSO_AUTH_TOKEN:', !!process.env.TURSO_AUTH_TOKEN);
+  if (!process.env.DATABASE_URL) {
+    console.error('❌ Missing required environment variable:');
+    console.error('   DATABASE_URL:', !!process.env.DATABASE_URL);
     console.error('');
-    console.error('Please set these environment variables and try again.');
+    console.error('Please set the DATABASE_URL environment variable and try again.');
     process.exit(1);
   }
   

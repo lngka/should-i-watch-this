@@ -25,7 +25,7 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 	// Try to validate video URL first, but don't fail if it doesn't work
 	let videoTitle = "Unknown";
 	try {
-		const info = await ytdl.getInfo(videoUrl, { requestOptions: { headers: requestHeaders } as any });
+		const info = await ytdl.getInfo(videoUrl, { requestOptions: { headers: requestHeaders } });
 		videoTitle = info.videoDetails.title;
 		console.log(`Video title: ${videoTitle}`);
 	} catch (error) {
@@ -40,19 +40,19 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 	try {
 		// Try with retries, tuned headers, and larger buffer
 		const attempts = [
-			{ filter: "audioonly", quality: "highestaudio", highWaterMark: 1 << 25 },
-			{ filter: "audioonly", highWaterMark: 1 << 25 },
-			{ quality: "lowestaudio", highWaterMark: 1 << 25 },
+			{ filter: "audioonly" as const, quality: "highestaudio" as const, highWaterMark: 1 << 25 },
+			{ filter: "audioonly" as const, highWaterMark: 1 << 25 },
+			{ quality: "lowestaudio" as const, highWaterMark: 1 << 25 },
 			{ highWaterMark: 1 << 25 },
 		];
 
 		let success = false;
 		for (let i = 0; i < attempts.length; i++) {
-			const base = attempts[i] as any;
+			const base = attempts[i];
 			const options = {
 				...base,
 				requestOptions: { headers: requestHeaders },
-			} as any;
+			};
 			try {
 				console.log(`Trying ytdl attempt ${i + 1}/${attempts.length} with options`, options);
 				await new Promise<void>((resolve, reject) => {
@@ -91,19 +91,19 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 			console.log(`Uploading audio directly (${Math.round(downloadedStats.size / 1024 / 1024)} MB)`);
 			const fileStream = fs.createReadStream(audioPath);
 			const res = await openai.audio.transcriptions.create({
-				file: fileStream as any,
+				file: fileStream,
 				model: "whisper-1",
 				response_format: "text",
 			});
-			return typeof res === "string" ? res : (res as any).text || "";
+			return typeof res === "string" ? res : (res as { text?: string }).text || "";
 		}
 
 		// Prepare ffmpeg if available
 		let canUseFfmpeg = false;
 		try {
 			// Use runtime require to avoid Turbopack bundling platform subpackages
-			const req: any = (eval as any)("require");
-			const installer = req("@ffmpeg-installer/ffmpeg");
+			const req = (eval as (code: string) => unknown)("require") as (module: string) => unknown;
+			const installer = req("@ffmpeg-installer/ffmpeg") as { path?: string };
 			if (installer?.path) {
 				ffmpeg.setFfmpegPath(installer.path);
 				canUseFfmpeg = true;
@@ -140,11 +140,11 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 		if (stats.size <= maxBytes) {
 			const fileStream = fs.createReadStream(compressedPath);
 			const res = await openai.audio.transcriptions.create({
-				file: fileStream as any,
+				file: fileStream,
 				model: "whisper-1",
 				response_format: "text",
 			});
-			return typeof res === "string" ? res : (res as any).text || "";
+			return typeof res === "string" ? res : (res as { text?: string }).text || "";
 		}
 
 		// If still large, segment into smaller chunks
@@ -184,11 +184,11 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 			console.log(`Transcribing chunk ${f} (${Math.round(st.size / 1024 / 1024)} MB)`);
 			const stream = fs.createReadStream(p);
 			const res = await openai.audio.transcriptions.create({
-				file: stream as any,
+				file: stream,
 				model: "whisper-1",
 				response_format: "text",
 			});
-			const text = typeof res === "string" ? res : (res as any).text || "";
+			const text = typeof res === "string" ? res : (res as { text?: string }).text || "";
 			fullText += (fullText ? "\n" : "") + text.trim();
 		}
 

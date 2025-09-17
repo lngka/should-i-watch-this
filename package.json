@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:deploy": "node scripts/deploy-db.js",
+    "db:setup": "node scripts/setup-db.js"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",

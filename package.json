@@ -12,6 +12,8 @@
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
     "@ffmpeg-installer/ffmpeg": "1.1.0",
+    "@libsql/client": "^0.15.15",
+    "@prisma/adapter-libsql": "^6.16.2",
     "@prisma/client": "^6.16.2",
     "@vercel/analytics": "^1.5.0",
     "fluent-ffmpeg": "2.1.3",

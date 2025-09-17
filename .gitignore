@@ -50,3 +50,4 @@ out/
 .vercel/
 .env*
 .DS_Store
+.vercel

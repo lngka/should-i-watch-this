@@ -1,0 +1,73 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Job {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  status       JobStatus @default(PENDING)
+  videoUrl     String
+  analysis     Analysis?
+  errorMessage String?
+}
+
+model Analysis {
+  id            String      @id @default(cuid())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  videoId       String?
+  video         Video?      @relation(fields: [videoId], references: [id])
+  jobId         String?     @unique
+  job           Job?        @relation(fields: [jobId], references: [id])
+  oneLiner      String
+  bulletPoints  Json
+  outline       Json
+  trustScore    Int
+  trustSignals  Json
+  claims        Claim[]
+}
+
+model Video {
+  id           String    @id @default(cuid())
+  url          String    @unique
+  title        String?
+  channel      String?
+  transcript   String?
+  transcriptId String?
+  analyses     Analysis[]
+}
+
+model Claim {
+  id          String      @id @default(cuid())
+  analysis    Analysis    @relation(fields: [analysisId], references: [id])
+  analysisId  String
+  text        String
+  confidence  Int
+  spotChecks  SpotCheck[]
+}
+
+model SpotCheck {
+  id         String   @id @default(cuid())
+  claim      Claim    @relation(fields: [claimId], references: [id])
+  claimId    String
+  url        String
+  summary    String
+  verdict    String
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}

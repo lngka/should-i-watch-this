@@ -10,6 +10,9 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+// Maximum video duration in seconds (35 minutes)
+const MAX_VIDEO_DURATION_SECONDS = 35 * 60; // 2100 seconds
+
 export async function POST(req: Request) {
 	try {
 		const { url } = await req.json();
@@ -55,10 +58,25 @@ export async function POST(req: Request) {
 			
 			console.log(`Starting analysis for job ${job.id}`);
 			
-			// Step 1: Extract video metadata
-			console.log(`Step 1: Extracting video metadata for ${url}`);
-			const videoMetadata = await extractVideoMetadata(url);
-			console.log(`Video metadata extracted: ${videoMetadata.title} by ${videoMetadata.channel}`);
+		// Step 1: Extract video metadata
+		console.log(`Step 1: Extracting video metadata for ${url}`);
+		const videoMetadata = await extractVideoMetadata(url);
+		console.log(`Video metadata extracted: ${videoMetadata.title} by ${videoMetadata.channel}`);
+		
+		// Check video duration limit
+		if (videoMetadata.duration && videoMetadata.duration > MAX_VIDEO_DURATION_SECONDS) {
+			const durationMinutes = Math.round(videoMetadata.duration / 60);
+			console.log(`Video duration ${durationMinutes} minutes exceeds 35-minute limit`);
+			await prisma.job.update({ 
+				where: { id: job.id }, 
+				data: { 
+					status: "FAILED", 
+					errorMessage: `Video duration (${durationMinutes} minutes) exceeds the 35-minute limit. Please provide a shorter video.` 
+				} 
+			});
+			memoryQueue.setFailed(job.id);
+			return;
+		}
 			
 			// Step 2: Fetch captions with timeout
 			console.log(`Step 2: Fetching captions for ${url}`);
@@ -98,7 +116,7 @@ export async function POST(req: Request) {
 			// Step 4: Analysis with timeout
 			console.log(`Step 4: Starting analysis`);
 			const analysis: AnalysisOutput = await Promise.race([
-				analyzeTranscript(transcript, url),
+				analyzeTranscript(transcript, url, { title: videoMetadata.title, description: videoMetadata.description }),
 				new Promise<AnalysisOutput>((_, reject) => 
 					setTimeout(() => reject(new Error("Analysis timeout")), 2 * 60 * 1000) // 2 minutes for analysis
 				)

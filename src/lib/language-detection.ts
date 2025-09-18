@@ -1,6 +1,3 @@
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export interface LanguageInfo {
 	language: string;
@@ -8,10 +5,18 @@ export interface LanguageInfo {
 	confidence: number;
 }
 
-export async function detectLanguage(text: string): Promise<LanguageInfo> {
+export async function detectLanguage(text: string, metadata?: { title?: string | null; description?: string | null }): Promise<LanguageInfo> {
 	try {
+		// Combine text with metadata for better detection
+		const combinedText = [
+			text,
+			metadata?.title || '',
+			metadata?.description || ''
+		].filter(Boolean).join(' ');
+
 		// Simple heuristic-based detection for common languages
 		const languagePatterns = {
+			'Vietnamese': /[ạảãâầấậẩẫăằắặẳẵệểễịỉĩọỏõôồốộổỗơờớợởỡụủũưừứựửữỵỷỹđ]/i,
 			'English': /^[a-zA-Z\s.,!?'"()-]+$/,
 			'Spanish': /[ñáéíóúü]/i,
 			'French': /[àâäéèêëïîôöùûüÿç]/i,
@@ -26,40 +31,45 @@ export async function detectLanguage(text: string): Promise<LanguageInfo> {
 			'Hindi': /[\u0900-\u097f]/,
 		};
 
-		// Check for non-Latin scripts first
-		if (languagePatterns.Chinese.test(text)) {
+		// Check for Vietnamese first (has unique diacritics that might be confused with other languages)
+		if (languagePatterns.Vietnamese.test(combinedText)) {
+			return { language: 'Vietnamese', languageCode: 'vi', confidence: 0.9 };
+		}
+
+		// Check for non-Latin scripts
+		if (languagePatterns.Chinese.test(combinedText)) {
 			return { language: 'Chinese', languageCode: 'zh', confidence: 0.9 };
 		}
-		if (languagePatterns.Japanese.test(text)) {
+		if (languagePatterns.Japanese.test(combinedText)) {
 			return { language: 'Japanese', languageCode: 'ja', confidence: 0.9 };
 		}
-		if (languagePatterns.Korean.test(text)) {
+		if (languagePatterns.Korean.test(combinedText)) {
 			return { language: 'Korean', languageCode: 'ko', confidence: 0.9 };
 		}
-		if (languagePatterns.Arabic.test(text)) {
+		if (languagePatterns.Arabic.test(combinedText)) {
 			return { language: 'Arabic', languageCode: 'ar', confidence: 0.9 };
 		}
-		if (languagePatterns.Hindi.test(text)) {
+		if (languagePatterns.Hindi.test(combinedText)) {
 			return { language: 'Hindi', languageCode: 'hi', confidence: 0.9 };
 		}
-		if (languagePatterns.Russian.test(text)) {
+		if (languagePatterns.Russian.test(combinedText)) {
 			return { language: 'Russian', languageCode: 'ru', confidence: 0.9 };
 		}
 
 		// Check for Latin-based languages
-		if (languagePatterns.Spanish.test(text)) {
+		if (languagePatterns.Spanish.test(combinedText)) {
 			return { language: 'Spanish', languageCode: 'es', confidence: 0.8 };
 		}
-		if (languagePatterns.French.test(text)) {
+		if (languagePatterns.French.test(combinedText)) {
 			return { language: 'French', languageCode: 'fr', confidence: 0.8 };
 		}
-		if (languagePatterns.German.test(text)) {
+		if (languagePatterns.German.test(combinedText)) {
 			return { language: 'German', languageCode: 'de', confidence: 0.8 };
 		}
-		if (languagePatterns.Italian.test(text)) {
+		if (languagePatterns.Italian.test(combinedText)) {
 			return { language: 'Italian', languageCode: 'it', confidence: 0.8 };
 		}
-		if (languagePatterns.Portuguese.test(text)) {
+		if (languagePatterns.Portuguese.test(combinedText)) {
 			return { language: 'Portuguese', languageCode: 'pt', confidence: 0.8 };
 		}
 
@@ -106,6 +116,10 @@ export function getLanguageSpecificPrompts(languageInfo: LanguageInfo) {
 		'Korean': {
 			system: `당신은 YouTube 동영상을 요약하고 신뢰성을 평가하는 어시스턴트입니다. JSON을 반환하세요. Markdown을 피하세요.`,
 			user: `전사:\n{transcript}\n\n다음 키를 가진 JSON을 반환하세요: oneLiner, bulletPoints (5-7개), outline (섹션), trustScore (0-100), trustSignals (배열), claims (2-5개, 각각 {text, confidence 0-100, spotChecks: 2-3개 {url, summary, verdict}}). 일반 지식을 사용한 웹 검증을 고려하고, 확실하지 않은 경우 신뢰할 수 있는 소스에 대한 합리적인 URL을 포함하세요.`
+		},
+		'Vietnamese': {
+			system: `Bạn là một trợ lý tóm tắt video YouTube và đánh giá độ tin cậy. Trả về JSON. Tránh markdown.`,
+			user: `Bản ghi:\n{transcript}\n\nTrả về JSON với các khóa: oneLiner, bulletPoints (5-7), outline (các phần), trustScore (0-100), trustSignals (mảng), claims (2-5, mỗi {text, confidence 0-100, spotChecks: 2-3 {url, summary, verdict}}). Xem xét việc kiểm tra web bằng kiến thức chung, bao gồm các URL hợp lý đến các nguồn đáng tin cậy nếu không chắc chắn.`
 		}
 	};
 

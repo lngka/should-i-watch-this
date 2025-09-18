@@ -18,9 +18,9 @@ export type AnalysisOutput = {
 	}>;
 };
 
-export async function analyzeTranscript(transcript: string, videoUrl: string): Promise<AnalysisOutput> {
-	// Detect the language of the transcript
-	const languageInfo = await detectLanguage(transcript);
+export async function analyzeTranscript(transcript: string, videoUrl: string, metadata?: { title?: string | null; description?: string | null }): Promise<AnalysisOutput> {
+	// Detect the language of the transcript using metadata as additional context
+	const languageInfo = await detectLanguage(transcript, metadata);
 	console.log(`Detected language: ${languageInfo.language} (${languageInfo.languageCode}) with confidence ${languageInfo.confidence}`);
 	
 	// Get language-specific prompts

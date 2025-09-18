@@ -82,6 +82,23 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 		}
 	};
 
+	const formatTranscript = (transcript: string) => {
+		// Split by common sentence endings and create paragraphs
+		return transcript
+			.split(/(?<=[.!?])\s+/)
+			.map(sentence => sentence.trim())
+			.filter(sentence => sentence.length > 0)
+			.reduce((paragraphs: string[], sentence, index) => {
+				// Create new paragraph every 3-4 sentences or when we hit a natural break
+				const currentParagraphIndex = Math.floor(index / 3);
+				if (!paragraphs[currentParagraphIndex]) {
+					paragraphs[currentParagraphIndex] = '';
+				}
+				paragraphs[currentParagraphIndex] += (paragraphs[currentParagraphIndex] ? ' ' : '') + sentence;
+				return paragraphs;
+			}, []);
+	};
+
 	useEffect(() => {
 		let cancelled = false;
 		let timer: NodeJS.Timeout | undefined;
@@ -571,9 +588,16 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 								</div>
 								
 								{data.transcript ? (
-									<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-96 overflow-y-auto">
-										<div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-											{data.transcript}
+									<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
+										<div className="space-y-4">
+											{formatTranscript(data.transcript).map((paragraph, index) => (
+												<p 
+													key={index} 
+													className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize"
+												>
+													{paragraph}
+												</p>
+											))}
 										</div>
 									</div>
 								) : (

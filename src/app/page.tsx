@@ -17,7 +17,12 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      if (!res.ok) throw new Error("Failed to enqueue analysis");
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to enqueue analysis");
+      }
+      
       const { jobId } = await res.json();
       startTransition(() => router.push(`/results/${jobId}`));
     } catch (e: any) {
@@ -46,6 +51,9 @@ export default function Home() {
               <p className="text-xl text-muted-foreground leading-relaxed">
                 Easily convert a youtube video to transcript, copy and download the generated youtube transcript in one click. 
                 Get started for free with AI-powered analysis and trust scoring.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Note: Videos must be 35 minutes or shorter for processing.
               </p>
             </div>
 

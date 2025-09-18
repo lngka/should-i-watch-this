@@ -2,8 +2,9 @@ import type { AnalysisOutput } from "@/analyze";
 import { analyzeTranscript } from "@/analyze";
 import prisma from "@/lib/prisma";
 import { enqueueJob, memoryQueue } from "@/lib/queue";
+import { transcribeFast } from "@/transcripts/alternative";
 import { fetchCaptions } from "@/transcripts/captions";
-import { transcribeWithWhisper } from "@/transcripts/whisper";
+import { transcribeForVercel } from "@/transcripts/whisper";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
 
 	// In-memory worker path: run in background with timeout
 	(async () => {
-		const JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
+		const JOB_TIMEOUT_MS = 4.5 * 60 * 1000; // 4.5 minutes timeout (leave buffer for Vercel's 300s limit)
 		let timeoutId: NodeJS.Timeout | null = null;
 		
 		try {
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
 				try {
 					await prisma.job.update({ 
 						where: { id: job.id }, 
-						data: { status: "FAILED", errorMessage: "Job timed out after 10 minutes" } 
+						data: { status: "FAILED", errorMessage: "Job timed out after 4.5 minutes (Vercel limit)" } 
 					});
 					memoryQueue.setFailed(job.id);
 				} catch (timeoutError) {
@@ -63,15 +64,27 @@ export async function POST(req: Request) {
 			]);
 			
 			if (!transcript) {
-				console.log(`No captions found for ${url}, falling back to Whisper`);
-				// Step 2: Whisper transcription with timeout
-				console.log(`Step 2: Starting Whisper transcription`);
-				transcript = await Promise.race([
-					transcribeWithWhisper(url),
-					new Promise<string>((_, reject) => 
-						setTimeout(() => reject(new Error("Whisper transcription timeout")), 8 * 60 * 1000) // 8 minutes for Whisper
-					)
-				]);
+				console.log(`No captions found for ${url}, using optimized transcription`);
+				// Step 2: Use fastest available transcription method
+				console.log(`Step 2: Starting optimized transcription`);
+				
+				// Try alternative services first (faster), then fallback to Vercel-optimized Whisper
+				try {
+					transcript = await Promise.race([
+						transcribeFast(url),
+						new Promise<string>((_, reject) => 
+							setTimeout(() => reject(new Error("Fast transcription timeout")), 3 * 60 * 1000) // 3 minutes for fast services
+						)
+					]);
+				} catch (fastError) {
+					console.log(`Fast transcription failed, falling back to Vercel-optimized Whisper: ${fastError}`);
+					transcript = await Promise.race([
+						transcribeForVercel(url),
+						new Promise<string>((_, reject) => 
+							setTimeout(() => reject(new Error("Vercel transcription timeout")), 4 * 60 * 1000) // 4 minutes for Vercel-optimized
+						)
+					]);
+				}
 			}
 			
 			console.log(`Got transcript, length: ${transcript.length}`);

@@ -9,7 +9,10 @@ function createPrismaClient(): PrismaClient {
 		throw new Error("Database configuration missing");
 	}
 	
-	console.log("Creating Prisma client with PostgreSQL");
+	// Only log when actually creating a new client (not on every import)
+	if (!globalForPrisma.prisma) {
+		console.log("Creating Prisma client with PostgreSQL");
+	}
 	return new PrismaClient({ log: ["warn", "error"] });
 }
 

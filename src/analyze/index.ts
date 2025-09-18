@@ -1,3 +1,4 @@
+import { detectLanguage, getLanguageSpecificPrompts } from "@/lib/language-detection";
 import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -8,6 +9,8 @@ export type AnalysisOutput = {
 	outline: string[];
 	trustScore: number;
 	trustSignals: string[];
+	language: string;
+	languageCode: string;
 	claims: Array<{
 		text: string;
 		confidence: number;
@@ -16,8 +19,15 @@ export type AnalysisOutput = {
 };
 
 export async function analyzeTranscript(transcript: string, videoUrl: string): Promise<AnalysisOutput> {
-	const system = `You are an assistant that summarizes YouTube videos and evaluates trustworthiness. Return JSON. Avoid markdown.`;
-	const user = `Transcript:\n${transcript.slice(0, 20000)}\n\nReturn a JSON with keys: oneLiner, bulletPoints (5-7), outline (sections), trustScore (0-100), trustSignals (array), claims (2-5, each {text, confidence 0-100, spotChecks: 2-3 items {url, summary, verdict}}). Consider web spot-checks using general knowledge, include plausible URLs to reputable sources if unsure.`;
+	// Detect the language of the transcript
+	const languageInfo = await detectLanguage(transcript);
+	console.log(`Detected language: ${languageInfo.language} (${languageInfo.languageCode}) with confidence ${languageInfo.confidence}`);
+	
+	// Get language-specific prompts
+	const prompts = getLanguageSpecificPrompts(languageInfo);
+	
+	const system = prompts.system;
+	const user = prompts.user.replace('{transcript}', transcript.slice(0, 20000));
 
 	const res = await openai.chat.completions.create({
 		model: "gpt-4o-mini",
@@ -29,6 +39,13 @@ export async function analyzeTranscript(transcript: string, videoUrl: string): P
 		temperature: 0.3,
 	});
 	const content = res.choices[0]?.message?.content || "{}";
-	return JSON.parse(content);
+	const result = JSON.parse(content);
+	
+	// Add language information to the result
+	return {
+		...result,
+		language: languageInfo.language,
+		languageCode: languageInfo.languageCode,
+	};
 }
 

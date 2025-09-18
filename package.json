@@ -13,7 +13,6 @@
     "db:setup": "node scripts/setup-db.js"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "@ffmpeg-installer/ffmpeg": "1.1.0",
     "@prisma/client": "^6.16.2",
     "@radix-ui/react-progress": "^1.1.7",
@@ -34,7 +33,7 @@
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
     "youtube-transcript": "^1.2.1",
-    "ytdl-core": "^4.11.5",
+    "ytdlp-nodejs": "^2.3.4",
     "zod": "^3.25.76"
   },
   "devDependencies": {

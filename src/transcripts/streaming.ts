@@ -1,12 +1,13 @@
 import { EventEmitter } from "events";
-import ytdl from "@distube/ytdl-core";
 import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
-import path from "path";
-import os from "os";
 import OpenAI from "openai";
+import os from "os";
+import path from "path";
+import { YtDlp } from "ytdlp-nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ytDlp = new YtDlp();
 
 export interface StreamingTranscriptionOptions {
 	chunkSizeSeconds?: number;
@@ -87,7 +88,7 @@ export class StreamingTranscription extends EventEmitter {
 						"-reset_timestamps", "1",
 					])
 					.on("error", reject)
-					.on("end", resolve)
+					.on("end", () => resolve())
 					.save(segmentTemplate);
 			});
 
@@ -115,28 +116,39 @@ export class StreamingTranscription extends EventEmitter {
 	}
 
 	private async downloadAudio(outputPath: string): Promise<void> {
-		const requestHeaders: Record<string, string> = {
-			"User-Agent": process.env.YOUTUBE_USER_AGENT || 
-				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-			"Accept-Language": "en-US,en;q=0.9",
-		};
-		if (process.env.YOUTUBE_COOKIE) {
-			requestHeaders["cookie"] = process.env.YOUTUBE_COOKIE;
+		// Extract video ID from URL (handles playlist URLs by getting the main video ID)
+		const videoId = this.extractVideoId(this.videoUrl);
+		if (!videoId) {
+			throw new Error('Could not extract video ID from URL');
+		}
+		
+		// Create a clean video URL without playlist parameters
+		const cleanVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+		
+		await ytDlp.downloadAsync(cleanVideoUrl, {
+			format: "bestaudio",
+			output: outputPath,
+		});
+	}
+
+	/**
+	 * Extract video ID from various YouTube URL formats
+	 */
+	private extractVideoId(url: string): string | null {
+		const patterns = [
+			/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+			/youtube\.com\/v\/([^&\n?#]+)/,
+			/youtube\.com\/watch\?.*v=([^&\n?#]+)/
+		];
+
+		for (const pattern of patterns) {
+			const match = url.match(pattern);
+			if (match) {
+				return match[1];
+			}
 		}
 
-		await new Promise<void>((resolve, reject) => {
-			const stream = ytdl(this.videoUrl, {
-				filter: "audioonly",
-				quality: "highestaudio",
-				requestOptions: { headers: requestHeaders },
-			});
-			
-			const write = fs.createWriteStream(outputPath);
-			stream.pipe(write);
-			write.on("finish", resolve);
-			write.on("error", reject);
-			stream.on("error", reject);
-		});
+		return null;
 	}
 
 	private async processSegmentsStreaming(segments: string[]): Promise<void> {

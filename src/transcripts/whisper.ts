@@ -1,10 +1,9 @@
-import ytdl from "@distube/ytdl-core";
 import crypto from "crypto";
 import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
 import OpenAI from "openai";
-import os from "os";
 import path from "path";
+import { cleanupTempFiles, downloadYouTubeAudio, getFileSize, getVideoInfo } from "./shared";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -17,56 +16,6 @@ function getCacheKey(videoUrl: string): string {
 	return crypto.createHash('md5').update(videoUrl).digest('hex');
 }
 
-// Optimized audio processing with streaming compression for Vercel
-async function processAudioStream(videoUrl: string, requestHeaders: Record<string, string>): Promise<string> {
-	const tmpRoot = process.env.VERCEL ? "/tmp" : os.tmpdir();
-	const tempDir = await fs.promises.mkdtemp(path.join(tmpRoot, "siwt-stream-"));
-	const outputPath = path.join(tempDir, "optimized-audio.mp3");
-	
-	try {
-		// Use aggressive compression settings for Vercel's 300s limit
-		const options = {
-			filter: "audioonly" as const,
-			quality: "lowestaudio" as const, // Use lowest quality for speed
-			highWaterMark: 1 << 20, // Smaller buffer for faster processing
-			requestOptions: { headers: requestHeaders }
-		};
-
-		await new Promise<void>((resolve, reject) => {
-			const stream = ytdl(videoUrl, options);
-			
-			// Aggressive compression for speed
-			ffmpeg()
-				.input(stream)
-				.audioCodec("libmp3lame")
-				.audioChannels(1)
-				.audioBitrate("16k") // Very low bitrate for speed
-				.audioFrequency(8000) // Lower frequency for speed
-				.outputOptions(["-vn", "-f", "mp3", "-preset", "ultrafast"])
-				.on("error", (err) => {
-					console.error(`FFmpeg error: ${err}`);
-					reject(err);
-				})
-				.on("end", () => {
-					console.log(`Fast compression complete: ${outputPath}`);
-					resolve();
-				})
-				.save(outputPath);
-
-			stream.on("error", (err) => {
-				console.error(`Stream error: ${err}`);
-				reject(err);
-			});
-		});
-
-		return outputPath;
-	} catch (error) {
-		// Cleanup on error
-		try { await fs.promises.unlink(outputPath); } catch {}
-		try { await fs.promises.rmdir(tempDir); } catch {}
-		throw error;
-	}
-}
 
 export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 	console.log(`Starting Whisper transcription for: ${videoUrl}`);
@@ -79,85 +28,22 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 		return cached.transcript;
 	}
 
-	// Prepare request headers; allow override via env for better success rates
-	const defaultUA =
-		process.env.YOUTUBE_USER_AGENT ||
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-	const requestHeaders: Record<string, string> = {
-		"User-Agent": defaultUA,
-		"Accept-Language": "en-US,en;q=0.9",
-	};
-	if (process.env.YOUTUBE_COOKIE) {
-		requestHeaders["cookie"] = process.env.YOUTUBE_COOKIE;
-	}
-
 	// Try to validate video URL first, but don't fail if it doesn't work
-	let videoTitle = "Unknown";
-	try {
-		const info = await ytdl.getInfo(videoUrl, { requestOptions: { headers: requestHeaders } });
-		videoTitle = info.videoDetails.title;
+	const videoInfo = await getVideoInfo(videoUrl);
+	const videoTitle = videoInfo?.title || "Unknown";
+	if (videoInfo) {
 		console.log(`Video title: ${videoTitle}`);
-	} catch (error) {
-		console.warn(`Could not get video info, proceeding anyway: ${error}`);
-		// Don't throw here, try to proceed with download
 	}
 
-	const tmpRoot = process.env.VERCEL ? "/tmp" : os.tmpdir();
-	const tempDir = await fs.promises.mkdtemp(path.join(tmpRoot, "siwt-"));
-	const audioPath = path.join(tempDir, "audio-source.mp4");
-	const compressedPath = path.join(tempDir, "audio-compressed.mp3");
+	// Download audio using shared utility
+	const { audioPath, fileSize } = await downloadYouTubeAudio(videoUrl, "siwt");
+	const compressedPath = path.join(path.dirname(audioPath), "audio-compressed.mp3");
+
 	try {
-		// Try with retries, tuned headers, and larger buffer
-		const attempts = [
-			{ filter: "audioonly" as const, quality: "highestaudio" as const, highWaterMark: 1 << 25 },
-			{ filter: "audioonly" as const, highWaterMark: 1 << 25 },
-			{ quality: "lowestaudio" as const, highWaterMark: 1 << 25 },
-			{ highWaterMark: 1 << 25 },
-		];
-
-		let success = false;
-		for (let i = 0; i < attempts.length; i++) {
-			const base = attempts[i];
-			const options = {
-				...base,
-				requestOptions: { headers: requestHeaders },
-			};
-			try {
-				console.log(`Trying ytdl attempt ${i + 1}/${attempts.length} with options`, options);
-				await new Promise<void>((resolve, reject) => {
-					const stream = ytdl(videoUrl, options);
-					const write = fs.createWriteStream(audioPath, { highWaterMark: 1 << 20 });
-					stream.on("error", (err) => {
-						console.error(`ytdl stream error: ${err}`);
-						reject(err);
-					});
-					write.on("error", (err) => {
-						console.error(`File write error: ${err}`);
-						reject(err);
-					});
-					write.on("finish", () => {
-						console.log(`Audio downloaded to: ${audioPath}`);
-						resolve();
-					});
-					stream.pipe(write);
-				});
-				success = true;
-				break;
-			} catch (err) {
-				console.warn(`Attempt ${i + 1} failed: ${err}`);
-				await new Promise((r) => setTimeout(r, 500 * (i + 1)));
-			}
-		}
-
-		if (!success) {
-			throw new Error("All ytdl download attempts failed (403). Provide YOUTUBE_COOKIE env from your browser session to improve success.");
-		}
-
 		// First try: if the downloaded audio is already under the limit, upload directly (no ffmpeg)
 		const maxBytes = 24 * 1024 * 1024; // safety margin
-		const downloadedStats = await fs.promises.stat(audioPath);
-		if (downloadedStats.size <= maxBytes) {
-			console.log(`Uploading audio directly (${Math.round(downloadedStats.size / 1024 / 1024)} MB)`);
+		if (fileSize <= maxBytes) {
+			console.log(`Uploading audio directly (${Math.round(fileSize / 1024 / 1024)} MB)`);
 			const fileStream = fs.createReadStream(audioPath);
 			const res = await openai.audio.transcriptions.create({
 				file: fileStream,
@@ -229,7 +115,7 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 		}
 
 		// If still large, segment into smaller chunks
-		const segmentDir = path.join(tempDir, "segments");
+		const segmentDir = path.join(path.dirname(audioPath), "segments");
 		await fs.promises.mkdir(segmentDir);
 		const segmentTemplate = path.join(segmentDir, "part-%03d.mp3");
 		const segmentTimeSec = 600; // 10 minutes
@@ -286,21 +172,7 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 
 		return fullText;
 	} finally {
-		try { await fs.promises.unlink(audioPath); } catch {}
-		try { await fs.promises.unlink(compressedPath); } catch {}
-		try {
-			const segDir = path.join(tempDir, "segments");
-			const exists = await fs.promises
-				.stat(segDir)
-				.then(() => true)
-				.catch(() => false);
-			if (exists) {
-				const entries = await fs.promises.readdir(segDir);
-				await Promise.all(entries.map((e) => fs.promises.unlink(path.join(segDir, e)).catch(() => {})));
-				await fs.promises.rmdir(segDir).catch(() => {});
-			}
-		} catch {}
-		try { await fs.promises.rmdir(tempDir); } catch {}
+		await cleanupTempFiles(audioPath);
 	}
 }
 
@@ -316,30 +188,19 @@ export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<
 		return cached.transcript;
 	}
 
-	// Prepare request headers
-	const defaultUA =
-		process.env.YOUTUBE_USER_AGENT ||
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-	const requestHeaders: Record<string, string> = {
-		"User-Agent": defaultUA,
-		"Accept-Language": "en-US,en;q=0.9",
-	};
-	if (process.env.YOUTUBE_COOKIE) {
-		requestHeaders["cookie"] = process.env.YOUTUBE_COOKIE;
-	}
-
 	let audioPath: string | undefined;
 	try {
-		// Use streaming compression for better performance
-		audioPath = await processAudioStream(videoUrl, requestHeaders);
+		// Download audio using shared utility
+		const { audioPath: downloadedPath } = await downloadYouTubeAudio(videoUrl, "whisper-opt");
+		audioPath = downloadedPath;
 		
 		// Check if we need to segment
 		const maxBytes = 24 * 1024 * 1024; // 24MB limit
-		const stats = await fs.promises.stat(audioPath);
+		const stats = await getFileSize(audioPath);
 		
-		if (stats.size <= maxBytes) {
+		if (stats <= maxBytes) {
 			// Direct transcription
-			console.log(`Transcribing audio directly (${Math.round(stats.size / 1024 / 1024)} MB)`);
+			console.log(`Transcribing audio directly (${Math.round(stats / 1024 / 1024)} MB)`);
 			const fileStream = fs.createReadStream(audioPath);
 			const res = await openai.audio.transcriptions.create({
 				file: fileStream,
@@ -413,18 +274,7 @@ export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<
 	} finally {
 		// Cleanup
 		if (audioPath) {
-			try {
-				const tempDir = path.dirname(audioPath);
-				await fs.promises.unlink(audioPath).catch(() => {});
-				const segmentDir = path.join(tempDir, "segments");
-				const exists = await fs.promises.stat(segmentDir).then(() => true).catch(() => false);
-				if (exists) {
-					const entries = await fs.promises.readdir(segmentDir);
-					await Promise.all(entries.map((e) => fs.promises.unlink(path.join(segmentDir, e)).catch(() => {})));
-					await fs.promises.rmdir(segmentDir).catch(() => {});
-				}
-				await fs.promises.rmdir(tempDir).catch(() => {});
-			} catch {}
+			await cleanupTempFiles(audioPath);
 		}
 	}
 }
@@ -447,71 +297,42 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 	const TRANSCRIBE_TIMEOUT = 180000; // 3 minutes for transcription
 
 	const startTime = Date.now();
+	let audioPath: string | undefined;
 
 	try {
-		// Prepare request headers
-		const defaultUA =
-			process.env.YOUTUBE_USER_AGENT ||
-			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-		const requestHeaders: Record<string, string> = {
-			"User-Agent": defaultUA,
-			"Accept-Language": "en-US,en;q=0.9",
-		};
-		if (process.env.YOUTUBE_COOKIE) {
-			requestHeaders["cookie"] = process.env.YOUTUBE_COOKIE;
+		// Download with timeout using shared utility
+		const result = await Promise.race([
+			downloadYouTubeAudio(videoUrl, "vercel", 20 * 1024 * 1024), // 20MB limit for Vercel
+			new Promise<never>((_, reject) => 
+				setTimeout(() => reject(new Error("Download timeout")), DOWNLOAD_TIMEOUT)
+			)
+		]);
+		audioPath = result.audioPath;
+
+		// Check if we have time left
+		if (Date.now() - startTime > TOTAL_TIMEOUT) {
+			throw new Error("Timeout: Download took too long");
 		}
 
-		// Fast download with timeout
-		const tmpRoot = process.env.VERCEL ? "/tmp" : os.tmpdir();
-		const tempDir = await fs.promises.mkdtemp(path.join(tmpRoot, "vercel-"));
-		const audioPath = path.join(tempDir, "fast-audio.mp3");
+		// Fast compression
+		const compressedPath = path.join(path.dirname(audioPath), "compressed.mp3");
+		await new Promise<void>((resolve, reject) => {
+			ffmpeg(audioPath)
+				.audioCodec("libmp3lame")
+				.audioChannels(1)
+				.audioBitrate("16k") // Very low bitrate
+				.audioFrequency(8000) // Low frequency
+				.outputOptions(["-vn", "-preset", "ultrafast"])
+				.on("error", (err) => reject(err))
+				.on("end", () => resolve())
+				.save(compressedPath);
+		});
 
-		try {
-			// Download with aggressive settings and timeout
-			await Promise.race([
-				new Promise<void>((resolve, reject) => {
-					const stream = ytdl(videoUrl, {
-						filter: "audioonly",
-						quality: "lowestaudio", // Fastest download
-						highWaterMark: 1 << 18, // Small buffer
-						requestOptions: { headers: requestHeaders }
-					});
-					
-					const write = fs.createWriteStream(audioPath);
-					stream.pipe(write);
-					write.on("finish", resolve);
-					write.on("error", reject);
-					stream.on("error", reject);
-				}),
-				new Promise<never>((_, reject) => 
-					setTimeout(() => reject(new Error("Download timeout")), DOWNLOAD_TIMEOUT)
-				)
-			]);
+		// Check file size and transcribe
+		const stats = await getFileSize(compressedPath);
+		const maxBytes = 24 * 1024 * 1024; // 24MB limit
 
-			// Check if we have time left
-			if (Date.now() - startTime > TOTAL_TIMEOUT) {
-				throw new Error("Timeout: Download took too long");
-			}
-
-			// Fast compression
-			const compressedPath = path.join(tempDir, "compressed.mp3");
-			await new Promise<void>((resolve, reject) => {
-				ffmpeg(audioPath)
-					.audioCodec("libmp3lame")
-					.audioChannels(1)
-					.audioBitrate("16k") // Very low bitrate
-					.audioFrequency(8000) // Low frequency
-					.outputOptions(["-vn", "-preset", "ultrafast"])
-					.on("error", (err) => reject(err))
-					.on("end", () => resolve())
-					.save(compressedPath);
-			});
-
-			// Check file size and transcribe
-			const stats = await fs.promises.stat(compressedPath);
-			const maxBytes = 24 * 1024 * 1024; // 24MB limit
-
-			if (stats.size <= maxBytes) {
+		if (stats <= maxBytes) {
 				// Direct transcription with timeout
 				const transcript = await Promise.race([
 					openai.audio.transcriptions.create({
@@ -530,11 +351,11 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 				transcriptCache.set(cacheKey, { transcript, timestamp: Date.now() });
 				console.log(`Vercel transcription completed in ${Date.now() - startTime}ms`);
 				return transcript;
-			} else {
-				// Segment and process in parallel with time limit
-				const segmentDir = path.join(tempDir, "segments");
-				await fs.promises.mkdir(segmentDir);
-				const segmentTemplate = path.join(segmentDir, "part-%03d.mp3");
+		} else {
+			// Segment and process in parallel with time limit
+			const segmentDir = path.join(path.dirname(audioPath), "segments");
+			await fs.promises.mkdir(segmentDir);
+			const segmentTemplate = path.join(segmentDir, "part-%03d.mp3");
 				
 				// Fast segmentation
 				await new Promise<void>((resolve, reject) => {
@@ -592,25 +413,14 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 				console.log(`Vercel parallel transcription completed in ${Date.now() - startTime}ms`);
 				return fullText;
 			}
-		} finally {
-			// Cleanup
-			try {
-				await fs.promises.unlink(audioPath).catch(() => {});
-				const compressedPath = path.join(tempDir, "compressed.mp3");
-				await fs.promises.unlink(compressedPath).catch(() => {});
-				const segmentDir = path.join(tempDir, "segments");
-				const exists = await fs.promises.stat(segmentDir).then(() => true).catch(() => false);
-				if (exists) {
-					const entries = await fs.promises.readdir(segmentDir);
-					await Promise.all(entries.map((e) => fs.promises.unlink(path.join(segmentDir, e)).catch(() => {})));
-					await fs.promises.rmdir(segmentDir).catch(() => {});
-				}
-				await fs.promises.rmdir(tempDir).catch(() => {});
-			} catch {}
-		}
 	} catch (error) {
 		console.error(`Vercel transcription failed after ${Date.now() - startTime}ms:`, error);
 		throw error;
+	} finally {
+		// Cleanup
+		if (audioPath) {
+			await cleanupTempFiles(audioPath);
+		}
 	}
 }
 

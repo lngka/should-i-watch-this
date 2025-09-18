@@ -1,45 +1,43 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url  	    = env("DATABASE_URL")
-  // uncomment next line if you use Prisma <5.10
-  // directUrl = env("DATABASE_URL_UNPOOLED")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
 model Job {
   id           String    @id @default(cuid())
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   status       JobStatus @default(PENDING)
   videoUrl     String
-  analysis     Analysis?
   errorMessage String?
+  analysis     Analysis?
 }
 
 model Analysis {
-  id            String      @id @default(cuid())
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  videoId       String?
-  video         Video?      @relation(fields: [videoId], references: [id])
-  jobId         String?     @unique
-  job           Job?        @relation(fields: [jobId], references: [id])
-  oneLiner      String
-  bulletPoints  Json
-  outline       Json
-  trustScore    Int
-  trustSignals  Json
-  claims        Claim[]
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  videoId      String?
+  jobId        String?  @unique
+  oneLiner     String
+  bulletPoints Json
+  outline      Json
+  trustScore   Int
+  trustSignals Json
+  language     String?
+  languageCode String?
+  job          Job?     @relation(fields: [jobId], references: [id])
+  video        Video?   @relation(fields: [videoId], references: [id])
+  claims       Claim[]
 }
 
 model Video {
-  id           String    @id @default(cuid())
-  url          String    @unique
+  id           String     @id @default(cuid())
+  url          String     @unique
   title        String?
   channel      String?
   transcript   String?
@@ -48,21 +46,21 @@ model Video {
 }
 
 model Claim {
-  id          String      @id @default(cuid())
-  analysis    Analysis    @relation(fields: [analysisId], references: [id])
-  analysisId  String
-  text        String
-  confidence  Int
-  spotChecks  SpotCheck[]
+  id         String      @id @default(cuid())
+  analysisId String
+  text       String
+  confidence Int
+  analysis   Analysis    @relation(fields: [analysisId], references: [id])
+  spotChecks SpotCheck[]
 }
 
 model SpotCheck {
-  id         String   @id @default(cuid())
-  claim      Claim    @relation(fields: [claimId], references: [id])
-  claimId    String
-  url        String
-  summary    String
-  verdict    String
+  id      String @id @default(cuid())
+  claimId String
+  url     String
+  summary String
+  verdict String
+  claim   Claim  @relation(fields: [claimId], references: [id])
 }
 
 enum JobStatus {

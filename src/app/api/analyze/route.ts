@@ -2,6 +2,7 @@ import type { AnalysisOutput } from "@/analyze";
 import { analyzeTranscript } from "@/analyze";
 import prisma from "@/lib/prisma";
 import { enqueueJob, memoryQueue } from "@/lib/queue";
+import { extractVideoMetadata } from "@/lib/video-metadata";
 import { transcribeFast } from "@/transcripts/alternative";
 import { fetchCaptions } from "@/transcripts/captions";
 import { transcribeForVercel } from "@/transcripts/whisper";
@@ -54,8 +55,13 @@ export async function POST(req: Request) {
 			
 			console.log(`Starting analysis for job ${job.id}`);
 			
-			// Step 1: Fetch captions with timeout
-			console.log(`Step 1: Fetching captions for ${url}`);
+			// Step 1: Extract video metadata
+			console.log(`Step 1: Extracting video metadata for ${url}`);
+			const videoMetadata = await extractVideoMetadata(url);
+			console.log(`Video metadata extracted: ${videoMetadata.title} by ${videoMetadata.channel}`);
+			
+			// Step 2: Fetch captions with timeout
+			console.log(`Step 2: Fetching captions for ${url}`);
 			let transcript = await Promise.race([
 				fetchCaptions(url),
 				new Promise<string | null>((_, reject) => 
@@ -65,8 +71,8 @@ export async function POST(req: Request) {
 			
 			if (!transcript) {
 				console.log(`No captions found for ${url}, using optimized transcription`);
-				// Step 2: Use fastest available transcription method
-				console.log(`Step 2: Starting optimized transcription`);
+				// Step 3: Use fastest available transcription method
+				console.log(`Step 3: Starting optimized transcription`);
 				
 				// Try alternative services first (faster), then fallback to Vercel-optimized Whisper
 				try {
@@ -89,8 +95,8 @@ export async function POST(req: Request) {
 			
 			console.log(`Got transcript, length: ${transcript.length}`);
 			
-			// Step 3: Analysis with timeout
-			console.log(`Step 3: Starting analysis`);
+			// Step 4: Analysis with timeout
+			console.log(`Step 4: Starting analysis`);
 			const analysis: AnalysisOutput = await Promise.race([
 				analyzeTranscript(transcript, url),
 				new Promise<AnalysisOutput>((_, reject) => 
@@ -100,21 +106,42 @@ export async function POST(req: Request) {
 			
 			console.log(`Analysis complete for job ${job.id}`);
 			
-			// Step 4: Save to database
-			console.log(`Step 4: Saving analysis to database`);
-			const created = await prisma.analysis.create({
-				data: {
-					oneLiner: analysis.oneLiner,
-					bulletPoints: analysis.bulletPoints as unknown as string[],
-					outline: analysis.outline as unknown as string[],
-					trustScore: analysis.trustScore,
-					trustSignals: analysis.trustSignals as unknown as string[],
-					job: { connect: { id: job.id } },
+			// Step 5: Create or update video record with metadata
+			console.log(`Step 5: Saving video metadata to database`);
+			const video = await prisma.video.upsert({
+				where: { url },
+				update: {
+					title: videoMetadata.title,
+					channel: videoMetadata.channel,
+					transcript: transcript,
+				},
+				create: {
+					url,
+					title: videoMetadata.title,
+					channel: videoMetadata.channel,
+					transcript: transcript,
 				},
 			});
 			
-			// Step 5: Save claims and spot checks
-			console.log(`Step 5: Saving claims and spot checks`);
+			// Step 6: Save analysis to database
+			console.log(`Step 6: Saving analysis to database`);
+			const analysisData = {
+				oneLiner: analysis.oneLiner,
+				bulletPoints: analysis.bulletPoints as unknown as string[],
+				outline: analysis.outline as unknown as string[],
+				trustScore: analysis.trustScore,
+				trustSignals: analysis.trustSignals as unknown as string[],
+				language: analysis.language,
+				languageCode: analysis.languageCode,
+				jobId: job.id,
+				videoId: video.id,
+			};
+			const created = await prisma.analysis.create({
+				data: analysisData,
+			});
+			
+			// Step 7: Save claims and spot checks
+			console.log(`Step 7: Saving claims and spot checks`);
 			for (const c of analysis.claims) {
 				const claim = await prisma.claim.create({
 					data: {

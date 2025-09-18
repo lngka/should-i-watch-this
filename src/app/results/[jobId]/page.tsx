@@ -7,10 +7,17 @@ type JobResponse = {
 	createdAt: string;
 	elapsedTime: number;
 	transcript?: string;
+	videoMetadata?: {
+		title: string | null;
+		channel: string | null;
+		url: string;
+	};
 	analysis?: {
 		oneLiner: string;
 		bulletPoints: string[];
 		trustScore: number;
+		language?: string;
+		languageCode?: string;
 		claims: Array<{
 			id: string;
 			text: string;
@@ -46,6 +53,23 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 		} else {
 			return `${seconds}s`;
 		}
+	};
+
+	const extractVideoId = (url: string): string | null => {
+		const patterns = [
+			/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+			/youtube\.com\/v\/([^&\n?#]+)/,
+			/youtube\.com\/watch\?.*v=([^&\n?#]+)/
+		];
+
+		for (const pattern of patterns) {
+			const match = url.match(pattern);
+			if (match) {
+				return match[1];
+			}
+		}
+
+		return null;
 	};
 
 	const copyToClipboard = async (text: string) => {
@@ -277,19 +301,6 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 		<div className="min-h-screen bg-background">
 			<div className="container mx-auto px-4 py-8">
 				<div className="max-w-6xl mx-auto">
-					{/* Header */}
-					<div className="text-center mb-12">
-						<div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-pink-500 to-red-500 rounded-full mb-6">
-							<Sparkles className="w-10 h-10 text-white" />
-						</div>
-						<h1 className="text-5xl font-bold text-foreground mb-4">Analysis Complete</h1>
-						<div className="flex items-center justify-center space-x-4 mb-4">
-							{getStatusBadge(status)}
-							<span className="text-muted-foreground">•</span>
-							<span className="text-sm text-muted-foreground">Processed in {formatElapsedTime(data.elapsedTime)}</span>
-						</div>
-						<p className="text-lg text-muted-foreground">Job ID: {jobId}</p>
-					</div>
 
 					{/* Error State */}
 					{status === "FAILED" && data?.errorMessage && (
@@ -331,31 +342,112 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 						</div>
 					)}
 
-					{/* Running State */}
+					{/* Progress Details - Show when running */}
 					{status === "RUNNING" && (
-						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
-							<div className="space-y-6">
+						<div className="bg-card rounded-2xl shadow-xl border border-border p-6 mb-8">
+							<div className="space-y-4">
 								<div className="flex items-center space-x-3">
-									<Loader2 className="w-6 h-6 text-primary animate-spin" />
-									<span className="text-lg font-medium text-foreground">{currentStep}</span>
+									<Loader2 className="w-5 h-5 text-primary animate-spin" />
+									<span className="font-medium text-foreground">{currentStep}</span>
 								</div>
-								<div className="space-y-3">
+								<div className="space-y-2">
 									<div className="flex justify-between items-center">
-										<span className="text-sm font-medium text-muted-foreground">Progress</span>
+										<span className="text-sm text-muted-foreground">Progress</span>
 										<span className="text-sm font-bold text-primary">{progressPercent}%</span>
 									</div>
-									<div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+									<div className="w-full bg-muted rounded-full h-2 overflow-hidden">
 										<div 
 											className="bg-gradient-to-r from-pink-500 to-red-500 h-full rounded-full transition-all duration-500 ease-out"
 											style={{ width: `${progressPercent}%` }}
 										></div>
 									</div>
 								</div>
-								<div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
+							</div>
+						</div>
+					)}
+
+					{/* Combined Video & Status Section */}
+					{data.videoMetadata && (
+						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
+							{/* Header Section */}
+							<div className="mb-8">
+								<h1 className="text-3xl font-bold text-foreground mb-2">Video Analysis</h1>
+								<p className="text-muted-foreground">Job ID: {jobId}</p>
+							</div>
+
+							<div className="grid lg:grid-cols-2 gap-8">
+								{/* Video Metadata & Status */}
+								<div className="space-y-6">
+									{/* Status Indicator */}
 									<div className="flex items-center space-x-3">
-										<Clock className="w-5 h-5 text-primary" />
-										<p className="text-sm text-foreground">Almost done! Finalizing your analysis...</p>
+										<div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-pink-500 to-red-500 rounded-full">
+											{status === "COMPLETED" ? (
+												<Sparkles className="w-6 h-6 text-white" />
+											) : status === "FAILED" ? (
+												<XCircle className="w-6 h-6 text-white" />
+											) : (
+												<Loader2 className="w-6 h-6 text-white animate-spin" />
+											)}
+										</div>
+										<div>
+											<div className="flex items-center space-x-2">
+												{getStatusBadge(status)}
+												{status === "COMPLETED" && (
+													<span className="text-sm text-muted-foreground">
+														• {formatElapsedTime(data.elapsedTime)}
+													</span>
+												)}
+											</div>
+											<p className="text-sm text-muted-foreground mt-1">
+												{status === "COMPLETED" ? "Analysis complete" : 
+												 status === "FAILED" ? "Analysis failed" :
+												 status === "RUNNING" ? "Analyzing content..." : "Initializing..."}
+											</p>
+										</div>
 									</div>
+
+									{/* Video Information */}
+									<div className="space-y-4">
+										{data.videoMetadata.title && (
+											<h2 className="text-2xl font-bold text-foreground leading-tight">
+												{data.videoMetadata.title}
+											</h2>
+										)}
+										{data.videoMetadata.channel && (
+											<p className="text-muted-foreground">
+												by <span className="font-medium text-foreground">{data.videoMetadata.channel}</span>
+											</p>
+										)}
+										{analysis?.language && (
+											<div>
+												<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+													🌐 {analysis.language}
+												</span>
+											</div>
+										)}
+									</div>
+
+									{/* Action Button */}
+									<a 
+										href={data.videoMetadata.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
+									>
+										<ExternalLink className="w-4 h-4" />
+										Watch on YouTube
+									</a>
+								</div>
+
+								{/* Embedded Video Player */}
+								<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+									<iframe
+										src={`https://www.youtube.com/embed/${extractVideoId(data.videoMetadata.url)}`}
+										title={data.videoMetadata.title || "YouTube Video"}
+										className="absolute top-0 left-0 w-full h-full rounded-xl border border-border"
+										allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+										allowFullScreen
+									/>
 								</div>
 							</div>
 						</div>
@@ -366,7 +458,16 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 						<div className="space-y-8">
 							{/* Summary Section */}
 							<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
-								<h2 className="text-3xl font-bold text-foreground mb-6">Analysis Summary</h2>
+								<div className="flex items-center justify-between mb-6">
+									<h2 className="text-3xl font-bold text-foreground">Analysis Summary</h2>
+									{analysis.language && analysis.language !== 'English' && (
+										<div className="text-sm text-muted-foreground">
+											<span className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-muted-foreground">
+												🌐 Content analyzed in {analysis.language}
+											</span>
+										</div>
+									)}
+								</div>
 								
 								{/* One-liner */}
 								<div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-xl p-6 mb-8 border border-primary/20">

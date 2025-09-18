@@ -25,8 +25,8 @@ export default function Home() {
       
       const { jobId } = await res.json();
       startTransition(() => router.push(`/results/${jobId}`));
-    } catch (e: any) {
-      setError(e?.message || "Something went wrong");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
     }
   }
 
@@ -43,17 +43,12 @@ export default function Home() {
             {/* Headline */}
             <div className="space-y-4">
               <h1 className="text-5xl lg:text-6xl font-bold leading-tight">
-                Turn YouTube Videos into{" "}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-red-500">
-                  Transcripts Instantly
+                  Should I Watch This YouTube Video?
                 </span>
               </h1>
               <p className="text-xl text-muted-foreground leading-relaxed">
-                Easily convert a youtube video to transcript, copy and download the generated youtube transcript in one click. 
-                Get started for free with AI-powered analysis and trust scoring.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Note: Videos must be 35 minutes or shorter for processing.
+                Paste a YouTube link to get an instant summary, relevance score, key points, and red-flag checks. Transcripts included.
               </p>
             </div>
 
@@ -62,7 +57,7 @@ export default function Home() {
               <div className="flex gap-3">
                 <input
                   className="flex-1 bg-white text-gray-900 rounded-xl px-6 py-4 text-lg border-0 focus:ring-2 focus:ring-pink-500 focus:outline-none"
-                  placeholder="Paste your Youtube video link here"
+                  placeholder="Paste a YouTube link…"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                 />
@@ -78,11 +73,18 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      <span>Extract transcript</span>
+                      <span>Analyze video</span>
                       <ArrowRight className="w-5 h-5" />
                     </>
                   )}
                 </button>
+              </div>
+
+              {/* Trust Note */}
+              <div className="flex justify-center">
+                <p className="text-xs text-muted-foreground">
+                  No login needed • Free tier available
+                </p>
               </div>
 
               {error && (
@@ -91,6 +93,7 @@ export default function Home() {
                 </div>
               )}
             </div>
+
 
           </div>
         </main>

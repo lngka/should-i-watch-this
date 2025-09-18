@@ -90,24 +90,33 @@ export async function POST(req: Request) {
 			if (!transcript) {
 				console.log(`No captions found for ${url}, using optimized transcription`);
 				// Step 3: Use fastest available transcription method
-				console.log(`Step 3: Starting optimized transcription`);
+				console.log(`Step 3: Starting optimized transcription at ${new Date().toISOString()}`);
 				
 				// Try alternative services first (faster), then fallback to Vercel-optimized Whisper
+				const fastStartTime = Date.now();
 				try {
+					console.log(`Attempting transcribeFast() at ${new Date().toISOString()}`);
 					transcript = await Promise.race([
 						transcribeFast(url),
 						new Promise<string>((_, reject) => 
 							setTimeout(() => reject(new Error("Fast transcription timeout")), 3 * 60 * 1000) // 3 minutes for fast services
 						)
 					]);
+					const fastEndTime = Date.now();
+					console.log(`transcribeFast() completed successfully in ${fastEndTime - fastStartTime}ms at ${new Date().toISOString()}`);
 				} catch (fastError) {
-					console.log(`Fast transcription failed, falling back to Vercel-optimized Whisper: ${fastError}`);
+					const fastEndTime = Date.now();
+					console.log(`transcribeFast() failed after ${fastEndTime - fastStartTime}ms, falling back to Vercel-optimized Whisper: ${fastError}`);
+					console.log(`Attempting transcribeForVercel() at ${new Date().toISOString()}`);
+					const vercelStartTime = Date.now();
 					transcript = await Promise.race([
 						transcribeForVercel(url),
 						new Promise<string>((_, reject) => 
 							setTimeout(() => reject(new Error("Vercel transcription timeout")), 4 * 60 * 1000) // 4 minutes for Vercel-optimized
 						)
 					]);
+					const vercelEndTime = Date.now();
+					console.log(`transcribeForVercel() completed successfully in ${vercelEndTime - vercelStartTime}ms at ${new Date().toISOString()}`);
 				}
 			}
 			

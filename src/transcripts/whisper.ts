@@ -281,13 +281,13 @@ export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<
 
 // Vercel-optimized transcription with aggressive time limits
 export async function transcribeForVercel(videoUrl: string): Promise<string> {
-	console.log(`Starting Vercel-optimized transcription for: ${videoUrl}`);
+	console.log(`Starting Vercel-optimized transcription for: ${videoUrl} at ${new Date().toISOString()}`);
 
 	// Check cache first
 	const cacheKey = getCacheKey(videoUrl);
 	const cached = transcriptCache.get(cacheKey);
 	if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-		console.log(`Using cached transcript for: ${videoUrl}`);
+		console.log(`Using cached transcript for: ${videoUrl} at ${new Date().toISOString()}`);
 		return cached.transcript;
 	}
 
@@ -301,6 +301,8 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 
 	try {
 		// Download with timeout using shared utility
+		console.log(`Downloading audio for Vercel transcription at ${new Date().toISOString()}`);
+		const downloadStartTime = Date.now();
 		const result = await Promise.race([
 			downloadYouTubeAudio(videoUrl, "vercel", 20 * 1024 * 1024), // 20MB limit for Vercel
 			new Promise<never>((_, reject) => 
@@ -308,6 +310,8 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 			)
 		]);
 		audioPath = result.audioPath;
+		const downloadEndTime = Date.now();
+		console.log(`Audio download completed in ${downloadEndTime - downloadStartTime}ms, size: ${result.fileSize} bytes at ${new Date().toISOString()}`);
 
 		// Check if we have time left
 		if (Date.now() - startTime > TOTAL_TIMEOUT) {
@@ -315,6 +319,8 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 		}
 
 		// Fast compression
+		console.log(`Starting FFmpeg compression at ${new Date().toISOString()}`);
+		const compressionStartTime = Date.now();
 		const compressedPath = path.join(path.dirname(audioPath), "compressed.mp3");
 		await new Promise<void>((resolve, reject) => {
 			ffmpeg(audioPath)
@@ -327,13 +333,18 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 				.on("end", () => resolve())
 				.save(compressedPath);
 		});
+		const compressionEndTime = Date.now();
+		console.log(`FFmpeg compression completed in ${compressionEndTime - compressionStartTime}ms at ${new Date().toISOString()}`);
 
 		// Check file size and transcribe
 		const stats = await getFileSize(compressedPath);
 		const maxBytes = 24 * 1024 * 1024; // 24MB limit
+		console.log(`Compressed file size: ${stats} bytes (limit: ${maxBytes} bytes) at ${new Date().toISOString()}`);
 
 		if (stats <= maxBytes) {
 				// Direct transcription with timeout
+				console.log(`Starting direct transcription at ${new Date().toISOString()}`);
+				const transcriptionStartTime = Date.now();
 				const transcript = await Promise.race([
 					openai.audio.transcriptions.create({
 						file: fs.createReadStream(compressedPath),
@@ -346,13 +357,17 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 						setTimeout(() => reject(new Error("Transcription timeout")), TRANSCRIBE_TIMEOUT)
 					)
 				]);
+				const transcriptionEndTime = Date.now();
+				console.log(`Direct transcription completed in ${transcriptionEndTime - transcriptionStartTime}ms at ${new Date().toISOString()}`);
 
 				// Cache the result
 				transcriptCache.set(cacheKey, { transcript, timestamp: Date.now() });
-				console.log(`Vercel transcription completed in ${Date.now() - startTime}ms`);
+				console.log(`Vercel transcription completed in ${Date.now() - startTime}ms at ${new Date().toISOString()}`);
 				return transcript;
 		} else {
 			// Segment and process in parallel with time limit
+			console.log(`File too large, starting segmentation at ${new Date().toISOString()}`);
+			const segmentationStartTime = Date.now();
 			const segmentDir = path.join(path.dirname(audioPath), "segments");
 			await fs.promises.mkdir(segmentDir);
 			const segmentTemplate = path.join(segmentDir, "part-%03d.mp3");
@@ -370,6 +385,8 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 						.on("end", () => resolve())
 						.save(segmentTemplate);
 				});
+			const segmentationEndTime = Date.now();
+			console.log(`Segmentation completed in ${segmentationEndTime - segmentationStartTime}ms at ${new Date().toISOString()}`);
 
 				const files = (await fs.promises.readdir(segmentDir))
 					.filter((f) => f.startsWith("part-") && f.endsWith(".mp3"))
@@ -380,7 +397,8 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 				}
 
 				// Process chunks with aggressive parallelization
-				console.log(`Processing ${files.length} chunks in parallel for Vercel`);
+				console.log(`Processing ${files.length} chunks in parallel for Vercel at ${new Date().toISOString()}`);
+				const chunkStartTime = Date.now();
 				const chunkPromises = files.map(async (f) => {
 					const p = path.join(segmentDir, f);
 					const stream = fs.createReadStream(p);
@@ -402,6 +420,8 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 						setTimeout(() => reject(new Error("Chunk processing timeout")), TRANSCRIBE_TIMEOUT)
 					)
 				]);
+				const chunkEndTime = Date.now();
+				console.log(`Chunk processing completed in ${chunkEndTime - chunkStartTime}ms at ${new Date().toISOString()}`);
 
 				const fullText = chunkResults
 					.sort((a, b) => a.index - b.index)
@@ -410,7 +430,7 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 
 				// Cache the result
 				transcriptCache.set(cacheKey, { transcript: fullText, timestamp: Date.now() });
-				console.log(`Vercel parallel transcription completed in ${Date.now() - startTime}ms`);
+				console.log(`Vercel parallel transcription completed in ${Date.now() - startTime}ms at ${new Date().toISOString()}`);
 				return fullText;
 			}
 	} catch (error) {
@@ -419,6 +439,7 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 	} finally {
 		// Cleanup
 		if (audioPath) {
+			console.log(`Cleaning up temp files at ${new Date().toISOString()}`);
 			await cleanupTempFiles(audioPath);
 		}
 	}

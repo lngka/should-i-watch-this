@@ -402,17 +402,29 @@ export class OptimizedWhisperService implements TranscriptionService {
 	name = "Optimized Whisper";
 
 	async transcribe(videoUrl: string): Promise<string> {
+		console.log(`OptimizedWhisperService starting transcription at ${new Date().toISOString()}`);
+		
 		// Download audio first
-		const { audioPath } = await downloadYouTubeAudio(videoUrl, "whisper-opt");
+		console.log(`Downloading audio for OptimizedWhisperService at ${new Date().toISOString()}`);
+		const downloadStartTime = Date.now();
+		const { audioPath, fileSize } = await downloadYouTubeAudio(videoUrl, "whisper-opt");
+		const downloadEndTime = Date.now();
+		console.log(`Audio download completed in ${downloadEndTime - downloadStartTime}ms, size: ${fileSize} bytes at ${new Date().toISOString()}`);
 		
 		try {
+			console.log(`Reading audio buffer at ${new Date().toISOString()}`);
+			const bufferStartTime = Date.now();
 			const audioBuffer = await readAudioBuffer(audioPath);
+			const bufferEndTime = Date.now();
+			console.log(`Audio buffer read in ${bufferEndTime - bufferStartTime}ms, size: ${audioBuffer.length} bytes at ${new Date().toISOString()}`);
 				
-				// Use optimized Whisper settings
-				// Create a File-like object compatible with Node.js
-				const file = new Blob([new Uint8Array(audioBuffer)], { type: "audio/mp3" }) as File & { name: string };
-				file.name = "audio.mp3";
+			// Use optimized Whisper settings
+			// Create a File-like object compatible with Node.js
+			const file = new Blob([new Uint8Array(audioBuffer)], { type: "audio/mp3" }) as File & { name: string };
+			file.name = "audio.mp3";
 			
+			console.log(`Sending to OpenAI Whisper API at ${new Date().toISOString()}`);
+			const apiStartTime = Date.now();
 			const response = await openai.audio.transcriptions.create({
 				file: file,
 				model: "whisper-1",
@@ -420,9 +432,14 @@ export class OptimizedWhisperService implements TranscriptionService {
 				temperature: 0.0, // More consistent results
 				// Remove language specification to enable auto-detection
 			});
+			const apiEndTime = Date.now();
+			console.log(`OpenAI Whisper API completed in ${apiEndTime - apiStartTime}ms at ${new Date().toISOString()}`);
 
-			return typeof response === "string" ? response : (response as { text?: string }).text || "";
+			const result = typeof response === "string" ? response : (response as { text?: string }).text || "";
+			console.log(`OptimizedWhisperService transcription completed, result length: ${result.length} at ${new Date().toISOString()}`);
+			return result;
 		} finally {
+			console.log(`Cleaning up temp files at ${new Date().toISOString()}`);
 			await cleanupTempFiles(audioPath);
 		}
 	}
@@ -456,9 +473,82 @@ export async function getBestTranscriptionServiceWithFallback(): Promise<Transcr
 	return await getBestTranscriptionService();
 }
 
+// Direct transcription without FFmpeg processing for smaller files
+export async function transcribeDirect(videoUrl: string): Promise<string> {
+	console.log(`transcribeDirect() starting at ${new Date().toISOString()}`);
+	
+	// Download audio first
+	console.log(`Downloading audio for direct transcription at ${new Date().toISOString()}`);
+	const downloadStartTime = Date.now();
+	const { audioPath, fileSize } = await downloadYouTubeAudio(videoUrl, "direct", 25 * 1024 * 1024); // 25MB limit
+	const downloadEndTime = Date.now();
+	console.log(`Audio download completed in ${downloadEndTime - downloadStartTime}ms, size: ${fileSize} bytes at ${new Date().toISOString()}`);
+	
+	try {
+		// Check if file is small enough to send directly (under 25MB)
+		const maxDirectSize = 25 * 1024 * 1024; // 25MB OpenAI limit
+		if (fileSize <= maxDirectSize) {
+			console.log(`File size ${fileSize} bytes is under ${maxDirectSize} bytes limit, sending directly to Whisper at ${new Date().toISOString()}`);
+			
+			const transcriptionStartTime = Date.now();
+			const audioBuffer = await readAudioBuffer(audioPath);
+			
+			// Create a File-like object compatible with Node.js
+			const file = new Blob([new Uint8Array(audioBuffer)], { type: "audio/mp3" }) as File & { name: string };
+			file.name = "audio.mp3";
+			
+			const response = await openai.audio.transcriptions.create({
+				file: file,
+				model: "whisper-1",
+				response_format: "text",
+				temperature: 0.0,
+				// No language specification to enable auto-detection
+			});
+			
+			const transcriptionEndTime = Date.now();
+			console.log(`Direct Whisper transcription completed in ${transcriptionEndTime - transcriptionStartTime}ms at ${new Date().toISOString()}`);
+			
+			const result = typeof response === "string" ? response : (response as { text?: string }).text || "";
+			console.log(`transcribeDirect() completed, result length: ${result.length} at ${new Date().toISOString()}`);
+			return result;
+		} else {
+			throw new Error(`File too large for direct transcription: ${fileSize} bytes (limit: ${maxDirectSize} bytes)`);
+		}
+	} finally {
+		console.log(`Cleaning up temp files at ${new Date().toISOString()}`);
+		await cleanupTempFiles(audioPath);
+	}
+}
+
 // Fast transcription with automatic service selection
 export async function transcribeFast(videoUrl: string): Promise<string> {
+	console.log(`transcribeFast() starting at ${new Date().toISOString()}`);
+	
+	// First try direct transcription (fastest path)
+	try {
+		console.log(`Attempting direct transcription first at ${new Date().toISOString()}`);
+		const directStartTime = Date.now();
+		const result = await transcribeDirect(videoUrl);
+		const directEndTime = Date.now();
+		console.log(`Direct transcription succeeded in ${directEndTime - directStartTime}ms at ${new Date().toISOString()}`);
+		return result;
+	} catch (directError) {
+		console.log(`Direct transcription failed: ${directError instanceof Error ? directError.message : String(directError)}`);
+		console.log(`Falling back to service-based transcription at ${new Date().toISOString()}`);
+	}
+	
+	// Fallback to service-based transcription
 	const service = await getBestTranscriptionServiceWithFallback();
-	console.log(`Using ${service.name} for transcription`);
-	return service.transcribe(videoUrl);
+	console.log(`Using ${service.name} for transcription at ${new Date().toISOString()}`);
+	const startTime = Date.now();
+	try {
+		const result = await service.transcribe(videoUrl);
+		const endTime = Date.now();
+		console.log(`${service.name} transcription completed in ${endTime - startTime}ms at ${new Date().toISOString()}`);
+		return result;
+	} catch (error) {
+		const endTime = Date.now();
+		console.log(`${service.name} transcription failed after ${endTime - startTime}ms: ${error instanceof Error ? error.message : String(error)}`);
+		throw error;
+	}
 }

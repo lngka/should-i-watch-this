@@ -1,4 +1,7 @@
 "use client";
+import PrivacyNotice from "@/components/PrivacyNotice";
+import TopNavigation from "@/components/TopNavigation";
+import { addSearchToHistory } from "@/lib/user-session";
 import { ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -26,6 +29,14 @@ export default function Home() {
       }
       
       const { jobId } = await res.json();
+      
+      // Add to search history with jobId
+      addSearchToHistory({
+        videoUrl: url,
+        jobId: jobId,
+        status: 'pending'
+      });
+      
       startTransition(() => router.push(`/results/${jobId}`));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -34,6 +45,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Top Navigation */}
+      <TopNavigation />
 
       {/* Main Content */}
       <div className="min-h-screen">
@@ -85,7 +98,7 @@ export default function Home() {
               {/* Trust Note */}
               <div className="flex justify-center">
                 <p className="text-xs text-muted-foreground">
-                  No login needed • Free tier available
+                  No login needed • Search history cached locally
                 </p>
               </div>
 
@@ -105,10 +118,13 @@ export default function Home() {
                   </div>
                   <p className="text-sm text-slate-700">
                     <span className="font-medium">Performance tip:</span> Videos under 15 minutes process faster. 
-                    Extended content may require additional processing time based on YouTube's content protection measures.
+                    Extended content may require additional processing time based on YouTube&apos;s content protection measures.
                   </p>
                 </div>
               </div>
+
+              {/* Privacy Notice */}
+              <PrivacyNotice />
             </div>
 
 

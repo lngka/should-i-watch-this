@@ -1,5 +1,8 @@
 "use client";
+import TopNavigation from "@/components/TopNavigation";
+import { addSearchToHistory } from "@/lib/user-session";
 import { AlertTriangle, CheckCircle, Clock, Copy, ExternalLink, FileText, Loader2, Shield, Sparkles, XCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
 
 type JobResponse = {
@@ -33,12 +36,14 @@ type JobResponse = {
 
 export default function ResultPage({ params }: { params: Promise<{ jobId: string }> }) {
 	const { jobId } = use(params);
+	const router = useRouter();
 	const [data, setData] = useState<JobResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [currentStep, setCurrentStep] = useState<string>("Starting analysis...");
 	const [progressPercent, setProgressPercent] = useState(0);
 	const [copySuccess, setCopySuccess] = useState(false);
+	const [showRecentResults, setShowRecentResults] = useState(false);
 	const pollCountRef = useRef(0);
 
 	const formatElapsedTime = (milliseconds: number) => {
@@ -120,6 +125,25 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 				setLoading(false);
 				const status = json?.status;
 				
+				// Update search history when analysis completes
+				if (status === "COMPLETED") {
+					addSearchToHistory({
+						videoUrl: json.videoMetadata?.url || '',
+						jobId: jobId,
+						status: 'completed',
+						videoTitle: json.videoMetadata?.title,
+						videoChannel: json.videoMetadata?.channel,
+						trustScore: json.analysis?.trustScore,
+						oneLiner: json.analysis?.oneLiner
+					});
+				} else if (status === "FAILED") {
+					addSearchToHistory({
+						videoUrl: json.videoMetadata?.url || '',
+						jobId: jobId,
+						status: 'failed'
+					});
+				}
+				
 				if (status === "COMPLETED" || status === "FAILED") {
 					return; // stop polling
 				}
@@ -181,6 +205,7 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 
 	if (loading) return (
 		<div className="min-h-screen bg-background">
+			<TopNavigation />
 			<div className="container mx-auto px-4 py-8">
 				<div className="max-w-4xl mx-auto">
 					{/* Header */}
@@ -254,6 +279,7 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 
 	if (error) return (
 		<div className="min-h-screen bg-background">
+			<TopNavigation />
 			<div className="container mx-auto px-4 py-8">
 				<div className="max-w-2xl mx-auto">
 					<div className="text-center mb-8">
@@ -329,8 +355,10 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 
 	return (
 		<div className="min-h-screen bg-background">
+			<TopNavigation />
 			<div className="container mx-auto px-4 py-8">
 				<div className="max-w-6xl mx-auto">
+
 
 					{/* Error State */}
 					{status === "FAILED" && data?.errorMessage && (

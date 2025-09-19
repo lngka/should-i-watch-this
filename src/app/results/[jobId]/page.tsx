@@ -637,42 +637,8 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 						</div>
 					)}
 
-					{/* Transcript Section - Show as soon as transcript is available, even while running */}
-					{data.transcript && status === "RUNNING" && (
-						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
-							<div className="flex items-center justify-between mb-6">
-								<div className="flex items-center space-x-3">
-									<h2 className="text-3xl font-bold text-foreground">Video Transcript</h2>
-									<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
-										<Clock className="w-4 h-4 mr-2" />
-										Analysis in progress
-									</span>
-								</div>
-								<button 
-									onClick={() => copyToClipboard(data.transcript!)}
-									className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
-								>
-									{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-									{copySuccess ? "Copied!" : "Copy"}
-								</button>
-							</div>
-							
-							<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
-								<div className="space-y-4">
-									{formatTranscript(data.transcript).map((paragraph, index) => (
-										<p 
-											key={index} 
-											className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
-										>
-											{paragraph}
-										</p>
-									))}
-								</div>
-							</div>
-						</div>
-					)}
 
-					{/* Combined Video & Status Section */}
+					{/* Video Information Section */}
 					{data.videoMetadata && (
 						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
 							{/* Header Section */}
@@ -759,7 +725,44 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 						</div>
 					)}
 
-					{/* Completed State */}
+					{/* Transcript Section - Show as soon as transcript is available */}
+					{data.transcript && (
+						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
+							<div className="flex items-center justify-between mb-6">
+								<div className="flex items-center space-x-3">
+									<h2 className="text-3xl font-bold text-foreground">Video Transcript</h2>
+									{status === "RUNNING" && (
+										<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+											<Clock className="w-4 h-4 mr-2" />
+											Analysis in progress
+										</span>
+									)}
+								</div>
+								<button 
+									onClick={() => copyToClipboard(data.transcript!)}
+									className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
+								>
+									{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+									{copySuccess ? "Copied!" : "Copy"}
+								</button>
+							</div>
+							
+							<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
+								<div className="space-y-4">
+									{formatTranscript(data.transcript).map((paragraph, index) => (
+										<p 
+											key={index} 
+											className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
+										>
+											{paragraph}
+										</p>
+									))}
+								</div>
+							</div>
+						</div>
+					)}
+
+					{/* Analysis Section - Show only when completed */}
 					{status === "COMPLETED" && analysis && (
 						<div className="space-y-8">
 							{/* Summary Section */}
@@ -860,44 +863,6 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 									</div>
 								</div>
 							)}
-
-							{/* Transcript Section */}
-							<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
-								<div className="flex items-center justify-between mb-6">
-									<h2 className="text-3xl font-bold text-foreground">Full Transcript</h2>
-									{data.transcript && (
-										<button 
-											onClick={() => copyToClipboard(data.transcript!)}
-											className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
-										>
-											{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-											{copySuccess ? "Copied!" : "Copy"}
-										</button>
-									)}
-								</div>
-								
-								{data.transcript ? (
-									<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
-										<div className="space-y-4">
-											{formatTranscript(data.transcript).map((paragraph, index) => (
-												<p 
-													key={index} 
-													className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
-												>
-													{paragraph}
-												</p>
-											))}
-										</div>
-									</div>
-								) : (
-									<div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-6">
-										<div className="flex items-center space-x-3">
-											<AlertTriangle className="w-5 h-5 text-yellow-500" />
-											<p className="text-yellow-500">No transcript available for this video.</p>
-										</div>
-									</div>
-								)}
-							</div>
 						</div>
 					)}
 

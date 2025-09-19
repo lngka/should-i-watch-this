@@ -2,7 +2,8 @@ import type { AnalysisOutput } from "@/analyze";
 import { analyzeTranscript } from "@/analyze";
 import prisma from "@/lib/prisma";
 import { enqueueJob, memoryQueue } from "@/lib/queue";
-import { extractVideoMetadata } from "@/lib/video-metadata";
+import { transcribeWithSIWT } from "@/lib/siwt-media-worker";
+import { extractVideoId, extractVideoMetadata } from "@/lib/video-metadata";
 import { transcribeFast } from "@/transcripts/alternative";
 import { fetchCaptions } from "@/transcripts/captions";
 import { transcribeForVercel } from "@/transcripts/whisper";
@@ -78,45 +79,76 @@ export async function POST(req: Request) {
 			return;
 		}
 			
-			// Step 2: Fetch captions with timeout
-			console.log(`Step 2: Fetching captions for ${url}`);
-			let transcript = await Promise.race([
-				fetchCaptions(url),
-				new Promise<string | null>((_, reject) => 
-					setTimeout(() => reject(new Error("Caption fetch timeout")), 30000)
-				)
-			]);
+			// Step 2: Try SIWT Media Worker first, then fall back to local transcription
+			console.log(`Step 2: Attempting transcription with SIWT Media Worker for ${url}`);
+			let transcript: string | null = null;
+			let siwtMetadata = null;
 			
-			if (!transcript) {
-				console.log(`No captions found for ${url}, using optimized transcription`);
-				// Step 3: Use fastest available transcription method
-				console.log(`Step 3: Starting optimized transcription at ${new Date().toISOString()}`);
-				
-				// Try alternative services first (faster), then fallback to Vercel-optimized Whisper
-				const fastStartTime = Date.now();
+			// Extract video ID for SIWT Media Worker
+			const videoId = extractVideoId(url);
+			if (videoId && process.env.SIWT_MEDIA_WORKER_URL) {
 				try {
-					console.log(`Attempting transcribeFast() at ${new Date().toISOString()}`);
-					transcript = await Promise.race([
-						transcribeFast(url),
-						new Promise<string>((_, reject) => 
-							setTimeout(() => reject(new Error("Fast transcription timeout")), 3 * 60 * 1000) // 3 minutes for fast services
+					console.log(`Calling SIWT Media Worker for video ID: ${videoId}`);
+					const siwtStartTime = Date.now();
+					siwtMetadata = await Promise.race([
+						transcribeWithSIWT(videoId),
+						new Promise<never>((_, reject) => 
+							setTimeout(() => reject(new Error("SIWT Media Worker timeout")), 5 * 60 * 1000) // 5 minutes timeout
 						)
 					]);
-					const fastEndTime = Date.now();
-					console.log(`transcribeFast() completed successfully in ${fastEndTime - fastStartTime}ms at ${new Date().toISOString()}`);
-				} catch (fastError) {
-					const fastEndTime = Date.now();
-					console.log(`transcribeFast() failed after ${fastEndTime - fastStartTime}ms, falling back to Vercel-optimized Whisper: ${fastError}`);
-					console.log(`Attempting transcribeForVercel() at ${new Date().toISOString()}`);
-					const vercelStartTime = Date.now();
-					transcript = await Promise.race([
-						transcribeForVercel(url),
-						new Promise<string>((_, reject) => 
-							setTimeout(() => reject(new Error("Vercel transcription timeout")), 4 * 60 * 1000) // 4 minutes for Vercel-optimized
-						)
-					]);
-					const vercelEndTime = Date.now();
-					console.log(`transcribeForVercel() completed successfully in ${vercelEndTime - vercelStartTime}ms at ${new Date().toISOString()}`);
+					const siwtEndTime = Date.now();
+					console.log(`SIWT Media Worker completed successfully in ${siwtEndTime - siwtStartTime}ms`);
+					transcript = siwtMetadata.transcript;
+				} catch (siwtError) {
+					console.log(`SIWT Media Worker failed: ${siwtError}, falling back to local transcription`);
+				}
+			} else {
+				console.log(`SIWT Media Worker not available (videoId: ${videoId}, URL: ${process.env.SIWT_MEDIA_WORKER_URL}), using local transcription`);
+			}
+			
+			// Step 3: Fallback to local transcription if SIWT Media Worker failed or unavailable
+			if (!transcript) {
+				console.log(`Step 3: Using local transcription for ${url}`);
+				// Try captions first (fastest), then fall back to audio transcription
+				console.log(`Attempting to fetch captions for ${url}`);
+				transcript = await Promise.race([
+					fetchCaptions(url),
+					new Promise<string | null>((_, reject) => 
+						setTimeout(() => reject(new Error("Caption fetch timeout")), 30000)
+					)
+				]);
+				
+				if (!transcript) {
+					console.log(`No captions found for ${url}, using audio transcription with ytdl-core`);
+					// Step 4: Use audio transcription (now Vercel-compatible with ytdl-core)
+					console.log(`Starting audio transcription at ${new Date().toISOString()}`);
+					
+					// Try alternative services first (faster), then fallback to Vercel-optimized Whisper
+					const fastStartTime = Date.now();
+					try {
+						console.log(`Attempting transcribeFast() at ${new Date().toISOString()}`);
+						transcript = await Promise.race([
+							transcribeFast(url),
+							new Promise<string>((_, reject) => 
+								setTimeout(() => reject(new Error("Fast transcription timeout")), 3 * 60 * 1000) // 3 minutes for fast services
+							)
+						]);
+						const fastEndTime = Date.now();
+						console.log(`transcribeFast() completed successfully in ${fastEndTime - fastStartTime}ms at ${new Date().toISOString()}`);
+					} catch (fastError) {
+						const fastEndTime = Date.now();
+						console.log(`transcribeFast() failed after ${fastEndTime - fastStartTime}ms, falling back to Vercel-optimized Whisper: ${fastError}`);
+						console.log(`Attempting transcribeForVercel() at ${new Date().toISOString()}`);
+						const vercelStartTime = Date.now();
+						transcript = await Promise.race([
+							transcribeForVercel(url),
+							new Promise<string>((_, reject) => 
+								setTimeout(() => reject(new Error("Vercel transcription timeout")), 4 * 60 * 1000) // 4 minutes for Vercel-optimized
+							)
+						]);
+						const vercelEndTime = Date.now();
+						console.log(`transcribeForVercel() completed successfully in ${vercelEndTime - vercelStartTime}ms at ${new Date().toISOString()}`);
+					}
 				}
 			}
 			
@@ -135,17 +167,21 @@ export async function POST(req: Request) {
 			
 			// Step 5: Create or update video record with metadata
 			console.log(`Step 5: Saving video metadata to database`);
+			// Use SIWT metadata if available, otherwise fall back to extracted metadata
+			const finalTitle = siwtMetadata?.title || videoMetadata.title;
+			const finalChannel = siwtMetadata?.channel || videoMetadata.channel;
+			
 			const video = await prisma.video.upsert({
 				where: { url },
 				update: {
-					title: videoMetadata.title,
-					channel: videoMetadata.channel,
+					title: finalTitle,
+					channel: finalChannel,
 					transcript: transcript,
 				},
 				create: {
 					url,
-					title: videoMetadata.title,
-					channel: videoMetadata.channel,
+					title: finalTitle,
+					channel: finalChannel,
 					transcript: transcript,
 				},
 			});

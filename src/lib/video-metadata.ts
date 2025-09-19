@@ -1,7 +1,4 @@
-import { YtDlp } from "ytdlp-nodejs";
-
-// Create a global instance of YtDlp
-const ytDlp = new YtDlp();
+// YouTube metadata extraction using public APIs (Vercel-compatible)
 
 export interface VideoMetadata {
 	title: string | null;
@@ -19,25 +16,26 @@ export async function extractVideoMetadata(videoUrl: string): Promise<VideoMetad
 		if (!videoId) {
 			throw new Error('Could not extract video ID from URL');
 		}
-		
-		// Create a clean video URL without playlist parameters
-		const cleanVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-		
-		const info = await ytDlp.getInfoAsync(cleanVideoUrl);
-		
-		// Check if it's a video (not a playlist)
-		if (info._type !== 'video') {
-			throw new Error('URL is not a single video');
+
+		// Try YouTube Data API v3 first (if API key is available)
+		if (process.env.YOUTUBE_API_KEY) {
+			try {
+				const apiMetadata = await getYouTubeDataApiMetadata(videoId);
+				if (apiMetadata) {
+					return apiMetadata;
+				}
+			} catch (apiError) {
+				console.warn('YouTube Data API failed, falling back to oEmbed:', apiError);
+			}
 		}
 
-		return {
-			title: info.title || null,
-			channel: info.uploader || null,
-			description: info.description || null,
-			duration: info.duration ? Math.round(info.duration) : null,
-			viewCount: info.view_count || null,
-			uploadDate: info.upload_date || null,
-		};
+		// Fallback to YouTube oEmbed API (no API key required)
+		const oembedMetadata = await getYouTubeOEmbedMetadata(videoId);
+		if (oembedMetadata) {
+			return oembedMetadata;
+		}
+
+		throw new Error('All metadata extraction methods failed');
 	} catch (error) {
 		console.error(`Failed to extract video metadata for ${videoUrl}:`, error);
 		return {
@@ -49,6 +47,102 @@ export async function extractVideoMetadata(videoUrl: string): Promise<VideoMetad
 			uploadDate: null,
 		};
 	}
+}
+
+/**
+ * Get video metadata using YouTube Data API v3
+ * Requires YOUTUBE_API_KEY environment variable
+ */
+async function getYouTubeDataApiMetadata(videoId: string): Promise<VideoMetadata | null> {
+	const apiKey = process.env.YOUTUBE_API_KEY;
+	if (!apiKey) {
+		return null;
+	}
+
+	const url = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&part=snippet,contentDetails,statistics&key=${apiKey}`;
+	
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(`YouTube Data API error: ${response.status}`);
+	}
+
+	const data = await response.json();
+	if (!data.items || data.items.length === 0) {
+		throw new Error('Video not found');
+	}
+
+	const video = data.items[0];
+	const snippet = video.snippet;
+	const statistics = video.statistics;
+	const contentDetails = video.contentDetails;
+
+	// Parse duration (ISO 8601 format like PT4M13S)
+	const duration = parseISODuration(contentDetails.duration);
+
+	return {
+		title: snippet.title || null,
+		channel: snippet.channelTitle || null,
+		description: snippet.description || null,
+		duration: duration,
+		viewCount: statistics.viewCount ? parseInt(statistics.viewCount) : null,
+		uploadDate: snippet.publishedAt ? snippet.publishedAt.split('T')[0] : null,
+	};
+}
+
+/**
+ * Get basic video metadata using YouTube oEmbed API
+ * No API key required, but limited information
+ */
+async function getYouTubeOEmbedMetadata(videoId: string): Promise<VideoMetadata | null> {
+	const url = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+	
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(`YouTube oEmbed API error: ${response.status}`);
+	}
+
+	const data = await response.json();
+
+	return {
+		title: data.title || null,
+		channel: data.author_name || null,
+		description: null, // oEmbed doesn't provide description
+		duration: null, // oEmbed doesn't provide duration
+		viewCount: null, // oEmbed doesn't provide view count
+		uploadDate: null, // oEmbed doesn't provide upload date
+	};
+}
+
+/**
+ * Parse ISO 8601 duration format (e.g., PT4M13S) to seconds
+ */
+function parseISODuration(duration: string): number | null {
+	if (!duration) return null;
+	
+	// Remove PT prefix
+	const cleanDuration = duration.replace('PT', '');
+	
+	let totalSeconds = 0;
+	
+	// Parse hours
+	const hoursMatch = cleanDuration.match(/(\d+)H/);
+	if (hoursMatch) {
+		totalSeconds += parseInt(hoursMatch[1]) * 3600;
+	}
+	
+	// Parse minutes
+	const minutesMatch = cleanDuration.match(/(\d+)M/);
+	if (minutesMatch) {
+		totalSeconds += parseInt(minutesMatch[1]) * 60;
+	}
+	
+	// Parse seconds
+	const secondsMatch = cleanDuration.match(/(\d+)S/);
+	if (secondsMatch) {
+		totalSeconds += parseInt(secondsMatch[1]);
+	}
+	
+	return totalSeconds;
 }
 
 export function formatDuration(seconds: number): string {

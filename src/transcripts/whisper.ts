@@ -3,7 +3,8 @@ import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
 import OpenAI from "openai";
 import path from "path";
-import { cleanupTempFiles, downloadYouTubeAudio, getFileSize, getVideoInfo } from "./shared";
+import { getFileSize, getVideoInfo } from "./utils";
+import { cleanupTempFiles as cleanupYtdlTempFiles, downloadYouTubeAudioWithYtdlCore } from "./ytdl-core-downloader";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -35,8 +36,8 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 		console.log(`Video title: ${videoTitle}`);
 	}
 
-	// Download audio using shared utility
-	const { audioPath, fileSize } = await downloadYouTubeAudio(videoUrl, "siwt");
+	// Download audio using ytdl-core
+	const { audioPath, fileSize } = await downloadYouTubeAudioWithYtdlCore(videoUrl, "siwt");
 	const compressedPath = path.join(path.dirname(audioPath), "audio-compressed.mp3");
 
 	try {
@@ -62,10 +63,9 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 		// Prepare ffmpeg if available
 		let canUseFfmpeg = false;
 		try {
-			// Use runtime require to avoid Turbopack bundling platform subpackages
-			const req = (eval as (code: string) => unknown)("require") as (module: string) => unknown;
-			const installer = req("@ffmpeg-installer/ffmpeg") as { path?: string };
-			if (installer?.path) {
+			// Use dynamic import to avoid bundling issues
+			const installer = await import("@ffmpeg-installer/ffmpeg");
+			if (installer.path) {
 				ffmpeg.setFfmpegPath(installer.path);
 				canUseFfmpeg = true;
 			}
@@ -172,7 +172,7 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 
 		return fullText;
 	} finally {
-		await cleanupTempFiles(audioPath);
+		await cleanupYtdlTempFiles(audioPath);
 	}
 }
 
@@ -190,8 +190,8 @@ export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<
 
 	let audioPath: string | undefined;
 	try {
-		// Download audio using shared utility
-		const { audioPath: downloadedPath } = await downloadYouTubeAudio(videoUrl, "whisper-opt");
+		// Download audio using ytdl-core
+		const { audioPath: downloadedPath } = await downloadYouTubeAudioWithYtdlCore(videoUrl, "whisper-opt");
 		audioPath = downloadedPath;
 		
 		// Check if we need to segment
@@ -274,7 +274,7 @@ export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<
 	} finally {
 		// Cleanup
 		if (audioPath) {
-			await cleanupTempFiles(audioPath);
+			await cleanupYtdlTempFiles(audioPath);
 		}
 	}
 }
@@ -304,7 +304,7 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 		console.log(`Downloading audio for Vercel transcription at ${new Date().toISOString()}`);
 		const downloadStartTime = Date.now();
 		const result = await Promise.race([
-			downloadYouTubeAudio(videoUrl, "vercel", 20 * 1024 * 1024), // 20MB limit for Vercel
+			downloadYouTubeAudioWithYtdlCore(videoUrl, "vercel", 20 * 1024 * 1024), // 20MB limit for Vercel
 			new Promise<never>((_, reject) => 
 				setTimeout(() => reject(new Error("Download timeout")), DOWNLOAD_TIMEOUT)
 			)
@@ -440,7 +440,7 @@ export async function transcribeForVercel(videoUrl: string): Promise<string> {
 		// Cleanup
 		if (audioPath) {
 			console.log(`Cleaning up temp files at ${new Date().toISOString()}`);
-			await cleanupTempFiles(audioPath);
+			await cleanupYtdlTempFiles(audioPath);
 		}
 	}
 }

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { cleanupTempFiles, downloadYouTubeAudio, readAudioBuffer } from "./shared";
+// No longer importing from shared.ts since we use ytdl-core downloader
+import { cleanupTempFiles as cleanupYtdlTempFiles, downloadYouTubeAudioWithYtdlCore, readAudioBuffer as readYtdlAudioBuffer } from "./ytdl-core-downloader";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -19,11 +20,11 @@ export class DeepgramService implements TranscriptionService {
 	}
 
 	async transcribe(videoUrl: string): Promise<string> {
-		// Download audio first
-		const { audioPath } = await downloadYouTubeAudio(videoUrl, "deepgram");
+		// Download audio first using ytdl-core
+		const { audioPath } = await downloadYouTubeAudioWithYtdlCore(videoUrl, "deepgram");
 		
 		try {
-			const audioBuffer = await readAudioBuffer(audioPath);
+			const audioBuffer = await readYtdlAudioBuffer(audioPath);
 			
 			// Comprehensive multilingual detection strategies
 			const commonLanguages = [
@@ -225,7 +226,7 @@ export class DeepgramService implements TranscriptionService {
 			throw new Error("All Deepgram strategies failed");
 			
 		} finally {
-			await cleanupTempFiles(audioPath);
+			await cleanupYtdlTempFiles(audioPath);
 		}
 	}
 
@@ -323,12 +324,12 @@ export class AssemblyAIService implements TranscriptionService {
 	}
 
 	async transcribe(videoUrl: string): Promise<string> {
-		// Download audio first
-		const { audioPath } = await downloadYouTubeAudio(videoUrl, "assemblyai");
+		// Download audio first using ytdl-core
+		const { audioPath } = await downloadYouTubeAudioWithYtdlCore(videoUrl, "assemblyai");
 		
 		try {
 			// Upload audio file
-			const audioBuffer = await readAudioBuffer(audioPath);
+			const audioBuffer = await readYtdlAudioBuffer(audioPath);
 				const uploadResponse = await fetch("https://api.assemblyai.com/v2/upload", {
 					method: "POST",
 					headers: {
@@ -391,7 +392,7 @@ export class AssemblyAIService implements TranscriptionService {
 
 			throw new Error("AssemblyAI transcription timeout");
 		} finally {
-			await cleanupTempFiles(audioPath);
+			await cleanupYtdlTempFiles(audioPath);
 		}
 	}
 
@@ -407,14 +408,14 @@ export class OptimizedWhisperService implements TranscriptionService {
 		// Download audio first
 		console.log(`Downloading audio for OptimizedWhisperService at ${new Date().toISOString()}`);
 		const downloadStartTime = Date.now();
-		const { audioPath, fileSize } = await downloadYouTubeAudio(videoUrl, "whisper-opt");
+		const { audioPath, fileSize } = await downloadYouTubeAudioWithYtdlCore(videoUrl, "whisper-opt");
 		const downloadEndTime = Date.now();
 		console.log(`Audio download completed in ${downloadEndTime - downloadStartTime}ms, size: ${fileSize} bytes at ${new Date().toISOString()}`);
 		
 		try {
-			console.log(`Reading audio buffer at ${new Date().toISOString()}`);
-			const bufferStartTime = Date.now();
-			const audioBuffer = await readAudioBuffer(audioPath);
+		console.log(`Reading audio buffer at ${new Date().toISOString()}`);
+		const bufferStartTime = Date.now();
+		const audioBuffer = await readYtdlAudioBuffer(audioPath);
 			const bufferEndTime = Date.now();
 			console.log(`Audio buffer read in ${bufferEndTime - bufferStartTime}ms, size: ${audioBuffer.length} bytes at ${new Date().toISOString()}`);
 				
@@ -440,7 +441,7 @@ export class OptimizedWhisperService implements TranscriptionService {
 			return result;
 		} finally {
 			console.log(`Cleaning up temp files at ${new Date().toISOString()}`);
-			await cleanupTempFiles(audioPath);
+			await cleanupYtdlTempFiles(audioPath);
 		}
 	}
 
@@ -477,10 +478,10 @@ export async function getBestTranscriptionServiceWithFallback(): Promise<Transcr
 export async function transcribeDirect(videoUrl: string): Promise<string> {
 	console.log(`transcribeDirect() starting at ${new Date().toISOString()}`);
 	
-	// Download audio first
+	// Download audio first using ytdl-core
 	console.log(`Downloading audio for direct transcription at ${new Date().toISOString()}`);
 	const downloadStartTime = Date.now();
-	const { audioPath, fileSize } = await downloadYouTubeAudio(videoUrl, "direct", 25 * 1024 * 1024); // 25MB limit
+	const { audioPath, fileSize } = await downloadYouTubeAudioWithYtdlCore(videoUrl, "direct", 25 * 1024 * 1024); // 25MB limit
 	const downloadEndTime = Date.now();
 	console.log(`Audio download completed in ${downloadEndTime - downloadStartTime}ms, size: ${fileSize} bytes at ${new Date().toISOString()}`);
 	
@@ -491,7 +492,7 @@ export async function transcribeDirect(videoUrl: string): Promise<string> {
 			console.log(`File size ${fileSize} bytes is under ${maxDirectSize} bytes limit, sending directly to Whisper at ${new Date().toISOString()}`);
 			
 			const transcriptionStartTime = Date.now();
-			const audioBuffer = await readAudioBuffer(audioPath);
+			const audioBuffer = await readYtdlAudioBuffer(audioPath);
 			
 			// Create a File-like object compatible with Node.js
 			const file = new Blob([new Uint8Array(audioBuffer)], { type: "audio/mp3" }) as File & { name: string };
@@ -516,7 +517,7 @@ export async function transcribeDirect(videoUrl: string): Promise<string> {
 		}
 	} finally {
 		console.log(`Cleaning up temp files at ${new Date().toISOString()}`);
-		await cleanupTempFiles(audioPath);
+		await cleanupYtdlTempFiles(audioPath);
 	}
 }
 

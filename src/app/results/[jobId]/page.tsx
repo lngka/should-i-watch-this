@@ -1,7 +1,8 @@
 "use client";
 import TopNavigation from "@/components/TopNavigation";
 import { addSearchToHistory } from "@/lib/user-session";
-import { AlertTriangle, CheckCircle, Clock, Copy, ExternalLink, FileText, Loader2, Shield, Sparkles, XCircle } from "lucide-react";
+import { extractVideoId } from "@/lib/utils";
+import { AlertTriangle, ArrowRight, CheckCircle, Clock, Copy, ExternalLink, FileText, Loader2, Shield, Sparkles, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
 
@@ -44,6 +45,7 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 	const [progressPercent, setProgressPercent] = useState(0);
 	const [copySuccess, setCopySuccess] = useState(false);
 	const [showRecentResults, setShowRecentResults] = useState(false);
+	const [isRetrying, setIsRetrying] = useState(false);
 	const pollCountRef = useRef(0);
 
 	const formatElapsedTime = (milliseconds: number) => {
@@ -60,22 +62,6 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 		}
 	};
 
-	const extractVideoId = (url: string): string | null => {
-		const patterns = [
-			/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-			/youtube\.com\/v\/([^&\n?#]+)/,
-			/youtube\.com\/watch\?.*v=([^&\n?#]+)/
-		];
-
-		for (const pattern of patterns) {
-			const match = url.match(pattern);
-			if (match) {
-				return match[1];
-			}
-		}
-
-		return null;
-	};
 
 	const copyToClipboard = async (text: string) => {
 		try {
@@ -362,12 +348,14 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 
 					{/* Error State */}
 					{status === "FAILED" && data?.errorMessage && (
-						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
-							<div className="bg-destructive/10 border border-destructive/20 rounded-xl p-6">
-								<div className="flex items-start space-x-3">
-									<XCircle className="w-6 h-6 text-destructive mt-0.5" />
-									<div>
-										<h3 className="font-semibold text-destructive mb-2">Analysis Failed</h3>
+						<div className="space-y-8">
+							{/* Error Message */}
+							<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
+								<div className="bg-destructive/10 border border-destructive/20 rounded-xl p-6">
+									<div className="flex items-start space-x-3">
+										<XCircle className="w-6 h-6 text-destructive mt-0.5" />
+										<div className="flex-1">
+											<h3 className="font-semibold text-destructive mb-2">Analysis Failed</h3>
 										{data.errorMessage.includes("403") ? (
 											<div>
 												<p className="text-destructive mb-2">YouTube blocked the download request. This can happen due to:</p>
@@ -388,15 +376,197 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 												</ul>
 												<p className="mt-2 text-destructive">Try again with a shorter video or try again later.</p>
 											</div>
+										) : data.errorMessage.includes("quota exceeded") || data.errorMessage.includes("insufficient_quota") ? (
+											<div>
+												<p className="text-destructive mb-2">OpenAI API quota exceeded. This means:</p>
+												<ul className="list-disc pl-5 space-y-1 text-destructive/80">
+													<li>The service has reached its monthly API usage limit</li>
+													<li>Billing details may need to be updated</li>
+													<li>Usage limits may need to be increased</li>
+												</ul>
+												<p className="mt-2 text-destructive">Please try again later or contact the service administrator.</p>
+											</div>
+										) : data.errorMessage.includes("rate limit") ? (
+											<div>
+												<p className="text-destructive mb-2">API rate limit exceeded. This means:</p>
+												<ul className="list-disc pl-5 space-y-1 text-destructive/80">
+													<li>Too many requests were made in a short time</li>
+													<li>The service is temporarily throttling requests</li>
+												</ul>
+												<p className="mt-2 text-destructive">Please wait a few minutes and try again.</p>
+											</div>
 										) : (
 											<div>
 												<p className="text-destructive mb-2">An unexpected error occurred: {data.errorMessage}</p>
 												<p className="text-destructive">Please try again or contact support if the issue persists.</p>
 											</div>
 										)}
+										
+										{/* Retry Button */}
+										<div className="mt-4">
+											<button
+												onClick={async () => {
+													if (data?.videoMetadata?.url) {
+														setIsRetrying(true);
+														setLoading(true);
+														setError(null);
+														setCurrentStep("Retrying analysis...");
+														setProgressPercent(0);
+														pollCountRef.current = 0;
+														
+														try {
+															// Create a new analysis for the same video
+															const res = await fetch("/api/analyze", {
+																method: "POST",
+																headers: { "Content-Type": "application/json" },
+																body: JSON.stringify({ url: data.videoMetadata.url }),
+															});
+															
+															if (res.ok) {
+																const { jobId: newJobId } = await res.json();
+																
+																// If it's the same job ID, just refresh the current page
+																if (newJobId === jobId) {
+																	// Reset state and start polling again
+																	setData(null);
+																	setIsRetrying(false);
+																	// The useEffect will automatically start polling again
+																} else {
+																	// Navigate to the new job
+																	router.push(`/results/${newJobId}`);
+																}
+															} else {
+																// If API call fails, show error
+																setError("Failed to retry analysis. Please try again later.");
+																setIsRetrying(false);
+																setLoading(false);
+															}
+														} catch (error) {
+															console.error('Retry failed:', error);
+															setError("Failed to retry analysis. Please try again later.");
+															setIsRetrying(false);
+															setLoading(false);
+														}
+													} else {
+														// No video URL available, go to home page
+														router.push('/');
+													}
+												}}
+												disabled={isRetrying}
+												className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+											>
+												{isRetrying ? (
+													<>
+														<Loader2 className="w-4 h-4 animate-spin" />
+														Retrying...
+													</>
+												) : (
+													<>
+														<ArrowRight className="w-4 h-4" />
+														Try Again
+													</>
+												)}
+											</button>
+										</div>
 									</div>
 								</div>
 							</div>
+							</div>
+							
+							{/* Video Information - Show even for failed analyses */}
+							{data.videoMetadata && (
+								<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
+									<div className="mb-8">
+										<h1 className="text-3xl font-bold text-foreground mb-2">Video Information</h1>
+										<p className="text-muted-foreground">Job ID: {jobId}</p>
+									</div>
+
+									<div className="grid lg:grid-cols-2 gap-8">
+										{/* Video Metadata */}
+										<div className="space-y-6">
+											{/* Status Indicator */}
+											<div className="flex items-center space-x-3">
+												<div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-red-500 to-red-600 rounded-full">
+													<XCircle className="w-6 h-6 text-white" />
+												</div>
+												<div>
+													<div className="flex items-center space-x-2">
+														{getStatusBadge(status)}
+													</div>
+													<p className="text-sm text-muted-foreground mt-1">
+														Analysis failed - transcript available below
+													</p>
+												</div>
+											</div>
+
+											{/* Video Information */}
+											<div className="space-y-4">
+												{data.videoMetadata.title && (
+													<h2 className="text-2xl font-bold text-foreground leading-tight">
+														{data.videoMetadata.title}
+													</h2>
+												)}
+												{data.videoMetadata.channel && (
+													<p className="text-muted-foreground">
+														by <span className="font-medium text-foreground">{data.videoMetadata.channel}</span>
+													</p>
+												)}
+											</div>
+
+											{/* Action Button */}
+											<a 
+												href={data.videoMetadata.url}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
+											>
+												<ExternalLink className="w-4 h-4" />
+												Watch on YouTube
+											</a>
+										</div>
+
+										{/* Embedded Video Player */}
+										<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+											<iframe
+												src={`https://www.youtube.com/embed/${extractVideoId(data.videoMetadata.url)}`}
+												title={data.videoMetadata.title || "YouTube Video"}
+												className="absolute top-0 left-0 w-full h-full rounded-xl border border-border"
+												allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+												allowFullScreen
+											/>
+										</div>
+									</div>
+								</div>
+							)}
+
+							{/* Transcript Section - Show even for failed analyses */}
+							{data.transcript && (
+								<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
+									<div className="flex items-center justify-between mb-6">
+										<h2 className="text-3xl font-bold text-foreground">Video Transcript</h2>
+										<button 
+											onClick={() => copyToClipboard(data.transcript!)}
+											className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
+										>
+											{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+											{copySuccess ? "Copied!" : "Copy"}
+										</button>
+									</div>
+									
+									<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
+										<div className="space-y-4">
+											{formatTranscript(data.transcript).map((paragraph, index) => (
+												<p 
+													key={index} 
+													className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
+												>
+													{paragraph}
+												</p>
+											))}
+										</div>
+									</div>
+								</div>
+							)}
 						</div>
 					)}
 

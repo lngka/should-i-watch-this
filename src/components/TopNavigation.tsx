@@ -1,16 +1,24 @@
 "use client";
 import { Button } from '@/components/ui/button';
-import { clearSearchHistory, getSearchHistory, removeSearchFromHistory } from '@/lib/user-session';
-import { CheckCircle, ChevronDown, Clock, History, Menu, Trash2, X, XCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { addSearchToHistory, clearSearchHistory, getSearchHistory, removeSearchFromHistory } from '@/lib/user-session';
+import { extractVideoId } from '@/lib/utils';
+import { ArrowRight, CheckCircle, ChevronDown, Clock, History, Menu, Trash2, X, XCircle } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 export default function TopNavigation() {
   const router = useRouter();
+  const pathname = usePathname();
   const [hasHistory, setHasHistory] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [searchUrl, setSearchUrl] = useState("");
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Check if we're on the results page
+  const isResultsPage = pathname?.startsWith('/results/');
 
   useEffect(() => {
     const history = getSearchHistory();
@@ -69,20 +77,6 @@ export default function TopNavigation() {
     }
   };
 
-  const extractVideoId = (url: string): string | null => {
-    const patterns = [
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-      /youtube\.com\/watch\?.*v=([^&\n?#]+)/
-    ];
-    
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match) {
-        return match[1];
-      }
-    }
-    return null;
-  };
 
   const getThumbnailUrl = (videoUrl: string): string | null => {
     const videoId = extractVideoId(videoUrl);
@@ -95,7 +89,7 @@ export default function TopNavigation() {
   const handleSearchClick = (jobId: string, status: string) => {
     console.log('Navigating to search result:', { jobId, status });
     
-    if (status === 'completed' && jobId) {
+    if (jobId) {
       try {
         router.push(`/results/${jobId}`);
       } catch (error) {
@@ -125,12 +119,48 @@ export default function TopNavigation() {
 
   const searchHistory = useMemo(() => getSearchHistory(), [hasHistory]);
 
+  // Search functionality for results page
+  async function handleSearch() {
+    if (!searchUrl.trim()) return;
+    
+    setError(null);
+    
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: searchUrl }),
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to enqueue analysis");
+      }
+      
+      const { jobId } = await res.json();
+      
+      // Add to search history with jobId
+      addSearchToHistory({
+        videoUrl: searchUrl,
+        jobId: jobId,
+        status: 'pending'
+      });
+      
+      startTransition(() => router.push(`/results/${jobId}`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    }
+  }
+
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
         <div className="flex items-center justify-between">
           {/* Logo/Brand */}
-          <div className="flex items-center space-x-2">
+          <div 
+            className="flex items-center space-x-2 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => router.push('/')}
+          >
             <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-r from-pink-500 to-red-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-xs sm:text-sm">S</span>
             </div>
@@ -139,6 +169,30 @@ export default function TopNavigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-4">
+            {/* Search Bar - Only show on results page */}
+            {isResultsPage && (
+              <div className="flex items-center space-x-2">
+                <input
+                  className="bg-white text-gray-900 rounded-lg px-4 py-2 text-sm border border-gray-300 focus:ring-2 focus:ring-pink-500 focus:outline-none w-64"
+                  placeholder="Paste a YouTube link for new search..."
+                  value={searchUrl}
+                  onChange={(e) => setSearchUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                <Button
+                  onClick={handleSearch}
+                  disabled={isPending || !searchUrl}
+                  className="bg-gradient-to-r from-pink-500 to-red-500 text-white hover:from-pink-600 hover:to-red-600 disabled:opacity-50"
+                  size="sm"
+                >
+                  {isPending ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <ArrowRight className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            )}
             {hasHistory && (
               <div className="relative" ref={dropdownRef}>
                 <Button
@@ -247,6 +301,30 @@ export default function TopNavigation() {
 
           {/* Mobile Navigation */}
           <div className="md:hidden flex items-center space-x-2">
+            {/* Mobile Search Bar - Only show on results page */}
+            {isResultsPage && (
+              <div className="flex items-center space-x-1">
+                <input
+                  className="bg-white text-gray-900 rounded-lg px-3 py-2 text-sm border border-gray-300 focus:ring-2 focus:ring-pink-500 focus:outline-none w-40"
+                  placeholder="New search..."
+                  value={searchUrl}
+                  onChange={(e) => setSearchUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                <Button
+                  onClick={handleSearch}
+                  disabled={isPending || !searchUrl}
+                  className="bg-gradient-to-r from-pink-500 to-red-500 text-white hover:from-pink-600 hover:to-red-600 disabled:opacity-50 p-2"
+                  size="sm"
+                >
+                  {isPending ? (
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <ArrowRight className="w-3 h-3" />
+                  )}
+                </Button>
+              </div>
+            )}
             {hasHistory && (
               <div className="relative" ref={dropdownRef}>
                 <Button
@@ -361,6 +439,15 @@ export default function TopNavigation() {
             </Button>
           </div>
         </div>
+        
+        {/* Error Display */}
+        {isResultsPage && error && (
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-3">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          </div>
+        )}
       </div>
     </nav>
   );

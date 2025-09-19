@@ -4,6 +4,7 @@ import { detectLanguage } from "@/lib/language-detection";
 import prisma from "@/lib/prisma";
 import { enqueueJob, memoryQueue } from "@/lib/queue";
 import { analyzeWithNewSIWT } from "@/lib/siwt-media-worker";
+import { generateJobId } from "@/lib/utils";
 import { extractVideoId, extractVideoMetadata } from "@/lib/video-metadata";
 import { NextResponse } from "next/server";
 
@@ -30,7 +31,50 @@ export async function POST(req: Request) {
 			return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
 		}
 
-		const job = await prisma.job.create({ data: { videoUrl: url } });
+		// Generate job ID - use video ID for YouTube videos to enable sharing
+		const jobId = generateJobId(url);
+		
+		// Check if we already have a completed analysis for this video
+		const existingJob = await prisma.job.findUnique({
+			where: { id: jobId },
+			include: { 
+				analysis: {
+					include: {
+						video: true
+					}
+				}
+			}
+		});
+		
+		if (existingJob && existingJob.status === "COMPLETED" && existingJob.analysis) {
+			console.log(`Found existing completed analysis for video ID: ${jobId}`);
+			return NextResponse.json({ jobId: jobId }, { status: 200 });
+		}
+		
+		// Check if there's already a running job for this video
+		if (existingJob && (existingJob.status === "PENDING" || existingJob.status === "RUNNING")) {
+			console.log(`Found existing running job for video ID: ${jobId}`);
+			return NextResponse.json({ jobId: jobId }, { status: 202 });
+		}
+		
+		// Check if we have an existing video record with transcript (for retries)
+		const existingVideo = await prisma.video.findUnique({
+			where: { url }
+		});
+		
+		// Create or update job with the generated ID
+		const job = await prisma.job.upsert({
+			where: { id: jobId },
+			update: {
+				status: "PENDING",
+				videoUrl: url,
+				errorMessage: null
+			},
+			create: { 
+				id: jobId,
+				videoUrl: url 
+			}
+		});
 
 	// In-memory worker path: run in background with timeout
 	(async () => {
@@ -77,49 +121,68 @@ export async function POST(req: Request) {
 			return;
 		}
 			
-			// Step 2: Try new SIWT Media Worker API first, then fall back to local transcription
-			console.log(`Step 2: Attempting transcription with new SIWT Media Worker API for ${url}`);
+			// Step 2: Try to reuse existing transcript first, then get new transcript
+			console.log(`Step 2: Checking for existing transcript for ${url}`);
 			let transcript: string | null = null;
 			let siwtMetadata = null;
 			let detectedLanguage = 'en'; // Default to English
 			
-			// Extract video ID for SIWT Media Worker
-			const videoId = extractVideoId(url);
-			if (videoId) {
-				try {
-					// First, detect language from video metadata
-					console.log(`Detecting language from video metadata for ${url}`);
-					const languageInfo = await detectLanguage('', { title: videoMetadata.title, description: videoMetadata.description });
-					detectedLanguage = languageInfo.languageCode;
-					console.log(`Detected language: ${languageInfo.language} (${languageInfo.languageCode}) with confidence ${languageInfo.confidence}`);
-					
-					console.log(`Calling new SIWT Media Worker analyze API for video ID: ${videoId} with language: ${detectedLanguage}`);
-					const siwtStartTime = Date.now();
-					const newSiwtResponse = await Promise.race([
-						analyzeWithNewSIWT(videoId, detectedLanguage),
-						new Promise<never>((_, reject) => 
-							setTimeout(() => reject(new Error("New SIWT Media Worker timeout")), 5 * 60 * 1000) // 5 minutes timeout
-						)
-					]);
-					const siwtEndTime = Date.now();
-					console.log(`New SIWT Media Worker analyze API completed successfully in ${siwtEndTime - siwtStartTime}ms`);
-					
-					// Use the text from the new API response
-					transcript = newSiwtResponse.text;
-					siwtMetadata = {
-						transcript: newSiwtResponse.text,
-						title: videoMetadata.title, // Fallback to extracted metadata
-						channel: videoMetadata.channel, // Fallback to extracted metadata
-						language: newSiwtResponse.language,
-						source: newSiwtResponse.source
-					};
-				} catch (siwtError) {
-					console.error(`SIWT Media Worker analyze API failed:`, siwtError);
-					const errorMessage = siwtError instanceof Error ? siwtError.message : String(siwtError);
-					throw new Error(`SIWT Media Worker failed: ${errorMessage}`);
-				}
+			// Check if we have an existing transcript to reuse
+			if (existingVideo && existingVideo.transcript) {
+				console.log(`Found existing transcript for ${url}, reusing it`);
+				transcript = existingVideo.transcript;
+				// Use existing video metadata if available
+				const finalTitle = existingVideo.title || videoMetadata.title;
+				const finalChannel = existingVideo.channel || videoMetadata.channel;
+				siwtMetadata = {
+					transcript: existingVideo.transcript,
+					title: finalTitle,
+					channel: finalChannel,
+					language: 'en', // Default, will be detected during analysis
+					source: 'cached'
+				};
 			} else {
-				throw new Error(`Could not extract video ID from URL: ${url}`);
+				// No existing transcript, get new one
+				console.log(`No existing transcript found, getting new transcript for ${url}`);
+				
+				// Extract video ID for SIWT Media Worker
+				const videoId = extractVideoId(url);
+				if (videoId) {
+					try {
+						// First, detect language from video metadata
+						console.log(`Detecting language from video metadata for ${url}`);
+						const languageInfo = await detectLanguage('', { title: videoMetadata.title, description: videoMetadata.description });
+						detectedLanguage = languageInfo.languageCode;
+						console.log(`Detected language: ${languageInfo.language} (${languageInfo.languageCode}) with confidence ${languageInfo.confidence}`);
+						
+						console.log(`Calling new SIWT Media Worker analyze API for video ID: ${videoId} with language: ${detectedLanguage}`);
+						const siwtStartTime = Date.now();
+						const newSiwtResponse = await Promise.race([
+							analyzeWithNewSIWT(videoId, detectedLanguage),
+							new Promise<never>((_, reject) => 
+								setTimeout(() => reject(new Error("New SIWT Media Worker timeout")), 5 * 60 * 1000) // 5 minutes timeout
+							)
+						]);
+						const siwtEndTime = Date.now();
+						console.log(`New SIWT Media Worker analyze API completed successfully in ${siwtEndTime - siwtStartTime}ms`);
+						
+						// Use the text from the new API response
+						transcript = newSiwtResponse.text;
+						siwtMetadata = {
+							transcript: newSiwtResponse.text,
+							title: videoMetadata.title, // Fallback to extracted metadata
+							channel: videoMetadata.channel, // Fallback to extracted metadata
+							language: newSiwtResponse.language,
+							source: newSiwtResponse.source
+						};
+					} catch (siwtError) {
+						console.error(`SIWT Media Worker analyze API failed:`, siwtError);
+						const errorMessage = siwtError instanceof Error ? siwtError.message : String(siwtError);
+						throw new Error(`SIWT Media Worker failed: ${errorMessage}`);
+					}
+				} else {
+					throw new Error(`Could not extract video ID from URL: ${url}`);
+				}
 			}
 			
 			console.log(`Got transcript, length: ${transcript.length}`);

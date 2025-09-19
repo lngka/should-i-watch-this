@@ -141,15 +141,30 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 		function updateProgressStep(status?: string) {
 			if (status === "RUNNING") {
 				// Estimate progress based on poll count and typical processing times
-				if (pollCountRef.current < 5) {
+				if (pollCountRef.current < 3) {
 					setCurrentStep("🔍 Fetching video captions...");
-					setProgressPercent(20);
-				} else if (pollCountRef.current < 15) {
+					setProgressPercent(15);
+				} else if (pollCountRef.current < 6) {
+					setCurrentStep("📥 Downloading video metadata...");
+					setProgressPercent(25);
+				} else if (pollCountRef.current < 9) {
+					setCurrentStep("🎵 Extracting audio track...");
+					setProgressPercent(35);
+				} else if (pollCountRef.current < 12) {
 					setCurrentStep("🎤 Transcribing audio with AI...");
-					setProgressPercent(60);
-				} else {
+					setProgressPercent(50);
+				} else if (pollCountRef.current < 18) {
+					setCurrentStep("📝 Processing transcript...");
+					setProgressPercent(65);
+				} else if (pollCountRef.current < 22) {
+					setCurrentStep("🔍 Identifying key claims...");
+					setProgressPercent(75);
+				} else if (pollCountRef.current < 26) {
 					setCurrentStep("🧠 Analyzing content and checking facts...");
 					setProgressPercent(85);
+				} else {
+					setCurrentStep("✨ Finalizing analysis...");
+					setProgressPercent(95);
 				}
 			} else {
 				setCurrentStep("⏳ Initializing analysis...");

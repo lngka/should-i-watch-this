@@ -111,15 +111,16 @@ export async function POST(req: Request) {
 		videoMetadata = await extractVideoMetadata(url);
 		console.log(`Video metadata extracted: ${videoMetadata.title} by ${videoMetadata.channel}`);
 		
-		// Check video duration limit
-		if (videoMetadata.duration && videoMetadata.duration > MAX_VIDEO_DURATION_SECONDS) {
+		// Check video duration limit (SIWT Media Worker has a 120-minute limit)
+		const SIWT_MAX_DURATION_SECONDS = 120 * 60; // 120 minutes
+		if (videoMetadata.duration && videoMetadata.duration > SIWT_MAX_DURATION_SECONDS) {
 			const durationMinutes = Math.round(videoMetadata.duration / 60);
-			console.log(`Video duration ${durationMinutes} minutes exceeds 15-minute limit`);
+			console.log(`Video duration ${durationMinutes} minutes exceeds SIWT Media Worker 120-minute limit`);
 			await prisma.job.update({ 
 				where: { id: job.id }, 
 				data: { 
 					status: "FAILED", 
-					errorMessage: `Video duration (${durationMinutes} minutes) exceeds the 15-minute limit. Please provide a shorter video.` 
+					errorMessage: `Video too long for analysis (${durationMinutes} min > 120 min). Please provide a shorter video.` 
 				} 
 			});
 			memoryQueue.setFailed(job.id);
@@ -181,6 +182,13 @@ export async function POST(req: Request) {
 					} catch (siwtError) {
 						console.error(`SIWT Media Worker analyze API failed:`, siwtError);
 						const errorMessage = siwtError instanceof Error ? siwtError.message : String(siwtError);
+						
+						// Handle specific 413 error for videos that are too long
+						if (errorMessage.includes('413 Request Entity Too Large') || errorMessage.includes('Video too long for ASR fallback')) {
+							const durationMinutes = videoMetadata.duration ? Math.round(videoMetadata.duration / 60) : 'unknown';
+							throw new Error(`Video too long for analysis (${durationMinutes} min > 120 min). Please provide a shorter video.`);
+						}
+						
 						throw new Error(`SIWT Media Worker failed: ${errorMessage}`);
 					}
 				} else {

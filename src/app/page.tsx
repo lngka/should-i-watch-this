@@ -24,11 +24,28 @@ export default function Home() {
       });
       
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
+        let errorData: { error?: string } = {};
+        try {
+          errorData = await res.json();
+        } catch (parseError) {
+          console.error('Failed to parse error response:', parseError);
+          const text = await res.text();
+          console.error('Error response text:', text);
+          errorData = { error: `Server error: ${text.substring(0, 100)}...` };
+        }
         throw new Error(errorData.error || "Failed to enqueue analysis");
       }
       
-      const { jobId } = await res.json();
+      let responseData;
+      try {
+        responseData = await res.json();
+      } catch (parseError) {
+        console.error('Failed to parse success response:', parseError);
+        const text = await res.text();
+        console.error('Success response text:', text);
+        throw new Error(`Server returned invalid response: ${text.substring(0, 100)}...`);
+      }
+      const { jobId } = responseData;
       
       // Add to search history with jobId
       addSearchToHistory({
@@ -117,8 +134,8 @@ export default function Home() {
                     </svg>
                   </div>
                   <p className="text-sm text-slate-700">
-                    <span className="font-medium">Performance tip:</span> Videos under 15 minutes process faster. 
-                    Extended content may require additional processing time based on YouTube&apos;s content protection measures.
+                    <span className="font-medium">Video limits:</span> Videos up to 2 hours are supported. 
+                    Shorter videos (under 15 minutes) process faster and more reliably.
                   </p>
                 </div>
               </div>

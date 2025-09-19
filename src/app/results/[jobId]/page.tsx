@@ -109,7 +109,16 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 					return;
 				}
 				
-				const json = await res.json();
+				let json;
+				try {
+					json = await res.json();
+				} catch (parseError) {
+					console.error('Failed to parse JSON response:', parseError);
+					const text = await res.text();
+					console.error('Response text:', text);
+					throw new Error(`Server returned invalid response: ${text.substring(0, 100)}...`);
+				}
+				
 				setData(json);
 				setLoading(false);
 				const status = json?.status;
@@ -401,6 +410,16 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 												</ul>
 												<p className="mt-2 text-destructive">Please wait a few minutes and try again.</p>
 											</div>
+										) : data.errorMessage.includes("Video too long for analysis") ? (
+											<div>
+												<p className="text-destructive mb-2">This video is too long for analysis. Our service currently supports videos up to 120 minutes.</p>
+												<ul className="list-disc pl-5 space-y-1 text-destructive/80">
+													<li>Try with a shorter video (under 2 hours)</li>
+													<li>Consider using a video excerpt or summary</li>
+													<li>Long-form content may be processed in the future</li>
+												</ul>
+												<p className="mt-2 text-destructive">Please try with a shorter video.</p>
+											</div>
 										) : (
 											<div>
 												<p className="text-destructive mb-2">An unexpected error occurred: {data.errorMessage}</p>
@@ -429,7 +448,16 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 															});
 															
 															if (res.ok) {
-																const { jobId: newJobId } = await res.json();
+																let responseData;
+																try {
+																	responseData = await res.json();
+																} catch (parseError) {
+																	console.error('Failed to parse retry response:', parseError);
+																	const text = await res.text();
+																	console.error('Retry response text:', text);
+																	throw new Error(`Server returned invalid response: ${text.substring(0, 100)}...`);
+																}
+																const { jobId: newJobId } = responseData;
 																
 																// If it's the same job ID, restart polling for the same job
 																if (newJobId === jobId) {
@@ -604,6 +632,41 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 											style={{ width: `${progressPercent}%` }}
 										></div>
 									</div>
+								</div>
+							</div>
+						</div>
+					)}
+
+					{/* Transcript Section - Show as soon as transcript is available, even while running */}
+					{data.transcript && status === "RUNNING" && (
+						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
+							<div className="flex items-center justify-between mb-6">
+								<div className="flex items-center space-x-3">
+									<h2 className="text-3xl font-bold text-foreground">Video Transcript</h2>
+									<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+										<Clock className="w-4 h-4 mr-2" />
+										Analysis in progress
+									</span>
+								</div>
+								<button 
+									onClick={() => copyToClipboard(data.transcript!)}
+									className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
+								>
+									{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+									{copySuccess ? "Copied!" : "Copy"}
+								</button>
+							</div>
+							
+							<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
+								<div className="space-y-4">
+									{formatTranscript(data.transcript).map((paragraph, index) => (
+										<p 
+											key={index} 
+											className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
+										>
+											{paragraph}
+										</p>
+									))}
 								</div>
 							</div>
 						</div>

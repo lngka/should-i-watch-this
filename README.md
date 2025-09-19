@@ -54,3 +54,51 @@ Deploy to Vercel
 Limits
 - Whisper uploads can be large and slow; captions are preferred when available
 - OpenAI usage billed to your account
+
+## Troubleshooting
+
+### Stuck Jobs
+
+If you encounter jobs that get stuck in "RUNNING" status (especially after 10+ minutes), this usually indicates:
+
+1. **Video Unavailable (410 Error)**: The YouTube video has been removed, made private, or is no longer accessible
+2. **Timeout Issues**: The job exceeded Vercel's 300-second serverless function limit
+3. **Metadata Extraction Failures**: Unable to extract video information
+
+#### Manual Job Cleanup
+
+Use the health check endpoint to identify and fix stuck jobs:
+
+```bash
+# Check for stuck jobs
+curl -X GET https://your-domain.com/api/jobs/health
+
+# Manually mark specific jobs as failed
+curl -X POST https://your-domain.com/api/jobs/health \
+  -H "Content-Type: application/json" \
+  -d '{"action": "mark_failed", "jobIds": ["jobId1", "jobId2"]}'
+```
+
+#### Local Cleanup Script
+
+For local development, use the provided script:
+
+```bash
+# Fix a specific stuck job
+node scripts/fix-stuck-job.js BfUEDvrD1Y4
+```
+
+#### Prevention
+
+The system now includes:
+- **Automatic Error Detection**: 410 errors are properly caught and jobs fail immediately
+- **Metadata Validation**: Jobs fail if no video metadata can be extracted
+- **Timeout Handling**: 4.5-minute timeout with proper cleanup
+- **Health Monitoring**: Regular cleanup of stuck jobs via health check endpoint
+
+### Common Error Messages
+
+- `"Video is no longer available (410 Gone)"` - Video was removed or made private
+- `"Failed to extract video metadata"` - Video is unavailable or has restricted access
+- `"Job timed out after 4.5 minutes"` - Processing exceeded Vercel's time limit
+- `"Video too long for analysis"` - Video exceeds 120-minute duration limit

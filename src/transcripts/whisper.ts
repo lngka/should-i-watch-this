@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import ffmpeg from "fluent-ffmpeg";
+// import ffmpeg from "fluent-ffmpeg"; // DISABLED: ffmpeg dependency removed
 import fs from "fs";
 import OpenAI from "openai";
 import path from "path";
@@ -19,15 +19,8 @@ function getCacheKey(videoUrl: string): string {
 
 
 export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
-	console.log(`Starting Whisper transcription for: ${videoUrl}`);
-
-	// Check cache first
-	const cacheKey = getCacheKey(videoUrl);
-	const cached = transcriptCache.get(cacheKey);
-	if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-		console.log(`Using cached transcript for: ${videoUrl}`);
-		return cached.transcript;
-	}
+	// DISABLED: ffmpeg dependency removed
+	throw new Error("transcribeWithWhisper is disabled: ffmpeg dependency was removed. Use the new SIWT Media Worker API instead.");
 
 	// Try to validate video URL first, but don't fail if it doesn't work
 	const videoInfo = await getVideoInfo(videoUrl);
@@ -178,6 +171,8 @@ export async function transcribeWithWhisper(videoUrl: string): Promise<string> {
 
 // New optimized transcription function with streaming
 export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<string> {
+	// DISABLED: ffmpeg dependency removed
+	throw new Error("transcribeWithWhisperOptimized is disabled: ffmpeg dependency was removed. Use the new SIWT Media Worker API instead.");
 	console.log(`Starting optimized Whisper transcription for: ${videoUrl}`);
 
 	// Check cache first
@@ -281,6 +276,8 @@ export async function transcribeWithWhisperOptimized(videoUrl: string): Promise<
 
 // Vercel-optimized transcription with aggressive time limits
 export async function transcribeForVercel(videoUrl: string): Promise<string> {
+	// DISABLED: ffmpeg dependency removed
+	throw new Error("transcribeForVercel is disabled: ffmpeg dependency was removed. Use the new SIWT Media Worker API instead.");
 	console.log(`Starting Vercel-optimized transcription for: ${videoUrl} at ${new Date().toISOString()}`);
 
 	// Check cache first

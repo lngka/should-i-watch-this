@@ -1,5 +1,4 @@
 import { EventEmitter } from "events";
-import ffmpeg from "fluent-ffmpeg";
 import fs from "fs";
 import OpenAI from "openai";
 import os from "os";
@@ -77,20 +76,9 @@ export class StreamingTranscription extends EventEmitter {
 			// Create segments directory
 			await fs.promises.mkdir(segmentDir);
 
-			// Segment audio with overlap
-			const segmentTemplate = path.join(segmentDir, "chunk-%03d.mp3");
-			await new Promise<void>((resolve, reject) => {
-				ffmpeg(audioPath)
-					.outputOptions([
-						"-f", "segment",
-						"-segment_time", String(this.options.chunkSizeSeconds),
-						"-segment_list_flags", "+live",
-						"-reset_timestamps", "1",
-					])
-					.on("error", reject)
-					.on("end", () => resolve())
-					.save(segmentTemplate);
-			});
+			// Segment audio with overlap - DISABLED: ffmpeg dependency removed
+			// This functionality is not used in the current implementation
+			throw new Error("StreamingTranscription is disabled: ffmpeg dependency was removed. Use the new SIWT Media Worker API instead.");
 
 			// Get segment files
 			const files = (await fs.promises.readdir(segmentDir))

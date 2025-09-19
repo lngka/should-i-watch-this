@@ -151,37 +151,8 @@ export async function validateVideoForProcessing(videoUrl: string): Promise<{
  * Extract audio from video file using ffmpeg
  */
 async function extractAudioFromVideo(videoPath: string, audioPath: string): Promise<void> {
-	const ffmpeg = (await import('fluent-ffmpeg')).default;
-	
-	// Try to set up ffmpeg path
-	try {
-		const installer = await import("@ffmpeg-installer/ffmpeg");
-		if (installer.path) {
-			ffmpeg.setFfmpegPath(installer.path);
-		} else if (process.env.FFMPEG_PATH) {
-			ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
-		}
-	} catch (e) {
-		console.warn(`ffmpeg path setup failed: ${e}`);
-	}
-
-	return new Promise<void>((resolve, reject) => {
-		ffmpeg(videoPath)
-			.audioCodec('libmp3lame')
-			.audioChannels(1)
-			.audioBitrate('64k') // Low bitrate for smaller file size
-			.audioFrequency(16000) // Standard frequency for speech
-			.outputOptions(['-vn']) // No video
-			.on('error', (err: Error) => {
-				console.error('Audio extraction failed:', err);
-				reject(new Error(`Failed to extract audio: ${err.message}`));
-			})
-			.on('end', () => {
-				console.log('Audio extraction completed successfully');
-				resolve();
-			})
-			.save(audioPath);
-	});
+	// DISABLED: ffmpeg dependency removed
+	throw new Error("extractAudioFromVideo is disabled: ffmpeg dependency was removed. Use the new SIWT Media Worker API instead.");
 }
 
 /**

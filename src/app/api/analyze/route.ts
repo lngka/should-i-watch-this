@@ -1,12 +1,10 @@
 import type { AnalysisOutput } from "@/analyze";
 import { analyzeTranscript } from "@/analyze";
+import { detectLanguage } from "@/lib/language-detection";
 import prisma from "@/lib/prisma";
 import { enqueueJob, memoryQueue } from "@/lib/queue";
-import { transcribeWithSIWT } from "@/lib/siwt-media-worker";
+import { analyzeWithNewSIWT } from "@/lib/siwt-media-worker";
 import { extractVideoId, extractVideoMetadata } from "@/lib/video-metadata";
-import { transcribeFast } from "@/transcripts/alternative";
-import { fetchCaptions } from "@/transcripts/captions";
-import { transcribeForVercel } from "@/transcripts/whisper";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -79,77 +77,48 @@ export async function POST(req: Request) {
 			return;
 		}
 			
-			// Step 2: Try SIWT Media Worker first, then fall back to local transcription
-			console.log(`Step 2: Attempting transcription with SIWT Media Worker for ${url}`);
+			// Step 2: Try new SIWT Media Worker API first, then fall back to local transcription
+			console.log(`Step 2: Attempting transcription with new SIWT Media Worker API for ${url}`);
 			let transcript: string | null = null;
 			let siwtMetadata = null;
+			let detectedLanguage = 'en'; // Default to English
 			
 			// Extract video ID for SIWT Media Worker
 			const videoId = extractVideoId(url);
-			if (videoId && process.env.SIWT_MEDIA_WORKER_URL) {
+			if (videoId) {
 				try {
-					console.log(`Calling SIWT Media Worker for video ID: ${videoId}`);
+					// First, detect language from video metadata
+					console.log(`Detecting language from video metadata for ${url}`);
+					const languageInfo = await detectLanguage('', { title: videoMetadata.title, description: videoMetadata.description });
+					detectedLanguage = languageInfo.languageCode;
+					console.log(`Detected language: ${languageInfo.language} (${languageInfo.languageCode}) with confidence ${languageInfo.confidence}`);
+					
+					console.log(`Calling new SIWT Media Worker analyze API for video ID: ${videoId} with language: ${detectedLanguage}`);
 					const siwtStartTime = Date.now();
-					siwtMetadata = await Promise.race([
-						transcribeWithSIWT(videoId),
+					const newSiwtResponse = await Promise.race([
+						analyzeWithNewSIWT(videoId, detectedLanguage),
 						new Promise<never>((_, reject) => 
-							setTimeout(() => reject(new Error("SIWT Media Worker timeout")), 5 * 60 * 1000) // 5 minutes timeout
+							setTimeout(() => reject(new Error("New SIWT Media Worker timeout")), 5 * 60 * 1000) // 5 minutes timeout
 						)
 					]);
 					const siwtEndTime = Date.now();
-					console.log(`SIWT Media Worker completed successfully in ${siwtEndTime - siwtStartTime}ms`);
-					transcript = siwtMetadata.transcript;
+					console.log(`New SIWT Media Worker analyze API completed successfully in ${siwtEndTime - siwtStartTime}ms`);
+					
+					// Use the text from the new API response
+					transcript = newSiwtResponse.text;
+					siwtMetadata = {
+						transcript: newSiwtResponse.text,
+						title: videoMetadata.title, // Fallback to extracted metadata
+						channel: videoMetadata.channel, // Fallback to extracted metadata
+						language: newSiwtResponse.language,
+						source: newSiwtResponse.source
+					};
 				} catch (siwtError) {
-					console.log(`SIWT Media Worker failed: ${siwtError}, falling back to local transcription`);
+					console.error(`SIWT Media Worker analyze API failed:`, siwtError);
+					throw new Error(`SIWT Media Worker failed: ${siwtError.message || siwtError}`);
 				}
 			} else {
-				console.log(`SIWT Media Worker not available (videoId: ${videoId}, URL: ${process.env.SIWT_MEDIA_WORKER_URL}), using local transcription`);
-			}
-			
-			// Step 3: Fallback to local transcription if SIWT Media Worker failed or unavailable
-			if (!transcript) {
-				console.log(`Step 3: Using local transcription for ${url}`);
-				// Try captions first (fastest), then fall back to audio transcription
-				console.log(`Attempting to fetch captions for ${url}`);
-				transcript = await Promise.race([
-					fetchCaptions(url),
-					new Promise<string | null>((_, reject) => 
-						setTimeout(() => reject(new Error("Caption fetch timeout")), 30000)
-					)
-				]);
-				
-				if (!transcript) {
-					console.log(`No captions found for ${url}, using audio transcription with ytdl-core`);
-					// Step 4: Use audio transcription (now Vercel-compatible with ytdl-core)
-					console.log(`Starting audio transcription at ${new Date().toISOString()}`);
-					
-					// Try alternative services first (faster), then fallback to Vercel-optimized Whisper
-					const fastStartTime = Date.now();
-					try {
-						console.log(`Attempting transcribeFast() at ${new Date().toISOString()}`);
-						transcript = await Promise.race([
-							transcribeFast(url),
-							new Promise<string>((_, reject) => 
-								setTimeout(() => reject(new Error("Fast transcription timeout")), 3 * 60 * 1000) // 3 minutes for fast services
-							)
-						]);
-						const fastEndTime = Date.now();
-						console.log(`transcribeFast() completed successfully in ${fastEndTime - fastStartTime}ms at ${new Date().toISOString()}`);
-					} catch (fastError) {
-						const fastEndTime = Date.now();
-						console.log(`transcribeFast() failed after ${fastEndTime - fastStartTime}ms, falling back to Vercel-optimized Whisper: ${fastError}`);
-						console.log(`Attempting transcribeForVercel() at ${new Date().toISOString()}`);
-						const vercelStartTime = Date.now();
-						transcript = await Promise.race([
-							transcribeForVercel(url),
-							new Promise<string>((_, reject) => 
-								setTimeout(() => reject(new Error("Vercel transcription timeout")), 4 * 60 * 1000) // 4 minutes for Vercel-optimized
-							)
-						]);
-						const vercelEndTime = Date.now();
-						console.log(`transcribeForVercel() completed successfully in ${vercelEndTime - vercelStartTime}ms at ${new Date().toISOString()}`);
-					}
-				}
+				throw new Error(`Could not extract video ID from URL: ${url}`);
 			}
 			
 			console.log(`Got transcript, length: ${transcript.length}`);

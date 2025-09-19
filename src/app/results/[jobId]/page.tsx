@@ -88,6 +88,9 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 			});
 	};
 
+	// Create a ref to store the polling function so it can be called from retry button
+	const pollOnceRef = useRef<(() => Promise<void>) | null>(null);
+
 	useEffect(() => {
 		let cancelled = false;
 		let timer: NodeJS.Timeout | undefined;
@@ -181,6 +184,9 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 				setProgressPercent(10);
 			}
 		}
+		
+		// Store the polling function in the ref so it can be called from retry button
+		pollOnceRef.current = pollOnce;
 		
 		pollOnce();
 		return () => {
@@ -425,12 +431,15 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 															if (res.ok) {
 																const { jobId: newJobId } = await res.json();
 																
-																// If it's the same job ID, just refresh the current page
+																// If it's the same job ID, restart polling for the same job
 																if (newJobId === jobId) {
 																	// Reset state and start polling again
 																	setData(null);
 																	setIsRetrying(false);
-																	// The useEffect will automatically start polling again
+																	// Manually restart polling by calling the stored function
+																	if (pollOnceRef.current) {
+																		pollOnceRef.current();
+																	}
 																} else {
 																	// Navigate to the new job
 																	router.push(`/results/${newJobId}`);

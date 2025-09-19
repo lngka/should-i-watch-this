@@ -81,6 +81,11 @@ export async function POST(req: Request) {
 		const JOB_TIMEOUT_MS = 4.5 * 60 * 1000; // 4.5 minutes timeout (leave buffer for Vercel's 300s limit)
 		let timeoutId: NodeJS.Timeout | null = null;
 		
+		// Declare variables outside try block so they're accessible in catch block
+		let transcript: string | null = null;
+		let siwtMetadata = null;
+		let videoMetadata: any = null;
+		
 		try {
 			await prisma.job.update({ where: { id: job.id }, data: { status: "RUNNING" } });
 			memoryQueue.setRunning(job.id);
@@ -103,7 +108,7 @@ export async function POST(req: Request) {
 			
 		// Step 1: Extract video metadata
 		console.log(`Step 1: Extracting video metadata for ${url}`);
-		const videoMetadata = await extractVideoMetadata(url);
+		videoMetadata = await extractVideoMetadata(url);
 		console.log(`Video metadata extracted: ${videoMetadata.title} by ${videoMetadata.channel}`);
 		
 		// Check video duration limit
@@ -123,8 +128,6 @@ export async function POST(req: Request) {
 			
 			// Step 2: Try to reuse existing transcript first, then get new transcript
 			console.log(`Step 2: Checking for existing transcript for ${url}`);
-			let transcript: string | null = null;
-			let siwtMetadata = null;
 			let detectedLanguage = 'en'; // Default to English
 			
 			// Check if we have an existing transcript to reuse
@@ -270,6 +273,33 @@ export async function POST(req: Request) {
 			if (timeoutId) {
 				clearTimeout(timeoutId);
 				timeoutId = null;
+			}
+			
+			// Save transcript even if analysis failed, so retries can reuse it
+			if (transcript) {
+				try {
+					console.log(`Saving transcript for failed job ${job.id} so it can be reused on retry`);
+					const finalTitle = siwtMetadata?.title || videoMetadata.title;
+					const finalChannel = siwtMetadata?.channel || videoMetadata.channel;
+					
+					await prisma.video.upsert({
+						where: { url },
+						update: {
+							title: finalTitle,
+							channel: finalChannel,
+							transcript: transcript,
+						},
+						create: {
+							url,
+							title: finalTitle,
+							channel: finalChannel,
+							transcript: transcript,
+						},
+					});
+					console.log(`Transcript saved for failed job ${job.id}`);
+				} catch (transcriptSaveError) {
+					console.error(`Failed to save transcript for failed job ${job.id}:`, transcriptSaveError);
+				}
 			}
 			
 			try {

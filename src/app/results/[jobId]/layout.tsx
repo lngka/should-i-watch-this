@@ -1,7 +1,7 @@
-import { Metadata } from "next";
-import { generateSocialMediaData, generateOpenGraphTags } from "@/lib/social-sharing";
 import prisma from "@/lib/prisma";
+import { generateOpenGraphTags, generateSocialMediaData } from "@/lib/social-sharing";
 import { extractVideoMetadata } from "@/lib/video-metadata";
+import { Metadata } from "next";
 
 type Props = {
   params: Promise<{ jobId: string }>;
@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       job.analysis ? {
         oneLiner: job.analysis.oneLiner,
         trustScore: job.analysis.trustScore,
-        bulletPoints: Array.isArray(job.analysis.bulletPoints) ? job.analysis.bulletPoints : []
+        bulletPoints: Array.isArray(job.analysis.bulletPoints) ? job.analysis.bulletPoints as string[] : []
       } : undefined,
       job.status,
       jobId
@@ -78,11 +78,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       robots: {
         index: true,
         follow: true,
-      },
-      // Add video-specific meta tags
-      other: {
-        'video:duration': job.analysis?.video?.duration || undefined,
-        'video:release_date': job.analysis?.video?.uploadDate || undefined,
       },
     };
   } catch (error) {

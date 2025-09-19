@@ -102,10 +102,5 @@ export function generateOpenGraphTags(data: SocialMediaData) {
       description: data.description,
       images: [data.image],
     },
-    // Additional meta tags for better social sharing
-    other: {
-      'og:video': data.type === 'video' ? data.url : undefined,
-      'og:video:type': data.type === 'video' ? 'text/html' : undefined,
-    },
   };
 }

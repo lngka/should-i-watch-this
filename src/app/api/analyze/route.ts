@@ -9,8 +9,8 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// Maximum video duration in seconds (35 minutes)
-const MAX_VIDEO_DURATION_SECONDS = 35 * 60; // 2100 seconds
+// Maximum video duration in seconds (15 minutes)
+const MAX_VIDEO_DURATION_SECONDS = 15 * 60; // 900 seconds
 
 export async function POST(req: Request) {
 	try {
@@ -65,12 +65,12 @@ export async function POST(req: Request) {
 		// Check video duration limit
 		if (videoMetadata.duration && videoMetadata.duration > MAX_VIDEO_DURATION_SECONDS) {
 			const durationMinutes = Math.round(videoMetadata.duration / 60);
-			console.log(`Video duration ${durationMinutes} minutes exceeds 35-minute limit`);
+			console.log(`Video duration ${durationMinutes} minutes exceeds 15-minute limit`);
 			await prisma.job.update({ 
 				where: { id: job.id }, 
 				data: { 
 					status: "FAILED", 
-					errorMessage: `Video duration (${durationMinutes} minutes) exceeds the 35-minute limit. Please provide a shorter video.` 
+					errorMessage: `Video duration (${durationMinutes} minutes) exceeds the 15-minute limit. Please provide a shorter video.` 
 				} 
 			});
 			memoryQueue.setFailed(job.id);
@@ -115,7 +115,8 @@ export async function POST(req: Request) {
 					};
 				} catch (siwtError) {
 					console.error(`SIWT Media Worker analyze API failed:`, siwtError);
-					throw new Error(`SIWT Media Worker failed: ${siwtError.message || siwtError}`);
+					const errorMessage = siwtError instanceof Error ? siwtError.message : String(siwtError);
+					throw new Error(`SIWT Media Worker failed: ${errorMessage}`);
 				}
 			} else {
 				throw new Error(`Could not extract video ID from URL: ${url}`);

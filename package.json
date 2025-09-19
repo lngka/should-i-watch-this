@@ -32,7 +32,6 @@
     "tailwindcss-animate": "^1.0.7",
     "youtube-transcript": "^1.2.1",
     "ytdl-core": "^4.11.5",
-    "ytdlp-nodejs": "^2.3.4",
     "zod": "^3.25.76"
   },
   "devDependencies": {

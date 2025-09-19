@@ -11,7 +11,9 @@ export default function Home() {
 
   async function submit() {
     setError(null);
+    
     try {
+      // Proceed directly with analysis
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,6 +94,21 @@ export default function Home() {
                   <p className="text-destructive text-sm">{error}</p>
                 </div>
               )}
+
+              {/* Performance Note */}
+              <div className="bg-slate-100/80 border border-slate-300/60 rounded-lg p-3">
+                <div className="flex items-center space-x-2">
+                  <div className="flex-shrink-0">
+                    <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-slate-700">
+                    <span className="font-medium">Performance tip:</span> Videos under 15 minutes process faster. 
+                    Extended content may require additional processing time based on YouTube's content protection measures.
+                  </p>
+                </div>
+              </div>
             </div>
 
 

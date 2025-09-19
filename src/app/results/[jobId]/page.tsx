@@ -83,20 +83,18 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 	};
 
 	const formatTranscript = (transcript: string) => {
-		// Split by common sentence endings and create paragraphs
+		// Preserve natural line breaks and paragraphs from the original transcript
 		return transcript
-			.split(/(?<=[.!?])\s+/)
-			.map(sentence => sentence.trim())
-			.filter(sentence => sentence.length > 0)
-			.reduce((paragraphs: string[], sentence, index) => {
-				// Create new paragraph every 3-4 sentences or when we hit a natural break
-				const currentParagraphIndex = Math.floor(index / 3);
-				if (!paragraphs[currentParagraphIndex]) {
-					paragraphs[currentParagraphIndex] = '';
-				}
-				paragraphs[currentParagraphIndex] += (paragraphs[currentParagraphIndex] ? ' ' : '') + sentence;
-				return paragraphs;
-			}, []);
+			.split(/\n\s*\n/) // Split on double line breaks (paragraph breaks)
+			.map(paragraph => paragraph.trim())
+			.filter(paragraph => paragraph.length > 0)
+			.map(paragraph => {
+				// Clean up single line breaks within paragraphs and normalize whitespace
+				return paragraph
+					.replace(/\n+/g, ' ') // Replace line breaks with spaces within paragraphs
+					.replace(/\s+/g, ' ') // Normalize multiple spaces to single spaces
+					.trim();
+			});
 	};
 
 	useEffect(() => {
@@ -363,9 +361,15 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 					{status === "RUNNING" && (
 						<div className="bg-card rounded-2xl shadow-xl border border-border p-6 mb-8">
 							<div className="space-y-4">
-								<div className="flex items-center space-x-3">
-									<Loader2 className="w-5 h-5 text-primary animate-spin" />
-									<span className="font-medium text-foreground">{currentStep}</span>
+								<div className="flex items-center justify-between">
+									<div className="flex items-center space-x-3">
+										<Loader2 className="w-5 h-5 text-primary animate-spin" />
+										<span className="font-medium text-foreground">{currentStep}</span>
+									</div>
+									<div className="flex items-center space-x-2 text-sm text-muted-foreground">
+										<Clock className="w-4 h-4" />
+										<span>{formatElapsedTime(data.elapsedTime)}</span>
+									</div>
 								</div>
 								<div className="space-y-2">
 									<div className="flex justify-between items-center">
@@ -593,7 +597,7 @@ export default function ResultPage({ params }: { params: Promise<{ jobId: string
 											{formatTranscript(data.transcript).map((paragraph, index) => (
 												<p 
 													key={index} 
-													className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize"
+													className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
 												>
 													{paragraph}
 												</p>

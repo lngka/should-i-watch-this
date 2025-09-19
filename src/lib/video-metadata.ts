@@ -1,5 +1,7 @@
 // YouTube metadata extraction using public APIs (Vercel-compatible)
 
+import ytdl from 'ytdl-core';
+
 export interface VideoMetadata {
 	title: string | null;
 	channel: string | null;
@@ -31,6 +33,25 @@ export async function extractVideoMetadata(videoUrl: string): Promise<VideoMetad
 
 		// Fallback to YouTube oEmbed API (no API key required)
 		const oembedMetadata = await getYouTubeOEmbedMetadata(videoId);
+		if (oembedMetadata && oembedMetadata.duration) {
+			return oembedMetadata;
+		}
+
+		// Additional fallback: Try ytdl-core for duration
+		try {
+			const ytdlMetadata = await getYtdlCoreMetadata(videoUrl);
+			if (ytdlMetadata && ytdlMetadata.duration) {
+				// Merge with oEmbed data if available (for title/channel)
+				return {
+					...oembedMetadata,
+					...ytdlMetadata
+				};
+			}
+		} catch (ytdlError) {
+			console.warn('ytdl-core metadata extraction failed:', ytdlError);
+		}
+
+		// If we have oEmbed data but no duration, return it anyway
 		if (oembedMetadata) {
 			return oembedMetadata;
 		}
@@ -111,6 +132,45 @@ async function getYouTubeOEmbedMetadata(videoId: string): Promise<VideoMetadata 
 		viewCount: null, // oEmbed doesn't provide view count
 		uploadDate: null, // oEmbed doesn't provide upload date
 	};
+}
+
+/**
+ * Get video metadata using ytdl-core
+ * Provides duration and basic video info
+ */
+async function getYtdlCoreMetadata(videoUrl: string): Promise<VideoMetadata | null> {
+	try {
+		// Create clean URL
+		const videoId = extractVideoId(videoUrl);
+		if (!videoId) {
+			return null;
+		}
+		const cleanVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+		// Validate URL
+		if (!ytdl.validateURL(cleanVideoUrl)) {
+			return null;
+		}
+
+		// Get video info
+		const videoInfo = await ytdl.getInfo(cleanVideoUrl);
+		const details = videoInfo.videoDetails;
+
+		// Extract duration
+		const duration = parseInt(details.lengthSeconds) || null;
+
+		return {
+			title: details.title || null,
+			channel: details.author?.name || null,
+			description: details.description || null,
+			duration: duration,
+			viewCount: details.viewCount ? parseInt(details.viewCount) : null,
+			uploadDate: details.publishDate || null,
+		};
+	} catch (error) {
+		console.warn('ytdl-core metadata extraction failed:', error);
+		return null;
+	}
 }
 
 /**

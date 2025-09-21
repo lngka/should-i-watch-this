@@ -1,3 +1,4 @@
+import { generateOpenGraphTags, generateSocialMediaData } from "@/lib/social-sharing";
 import { Metadata } from "next";
 import ResultPageClient from "./ResultPageClient";
 
@@ -5,10 +6,36 @@ type Props = {
   params: Promise<{ jobId: string }>;
 };
 
-// Generate basic metadata without database calls
+// Generate dynamic metadata with actual video data
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { jobId } = await params;
   
+  try {
+    // Fetch the actual job data to generate proper metadata
+    const baseUrl = process.env.SITE_URL || 'http://localhost:3000';
+    const response = await fetch(`${baseUrl}/api/result/${jobId}`, {
+      cache: 'no-store' // Ensure we get fresh data
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      
+      // Generate social media data with actual video information
+      const socialData = generateSocialMediaData(
+        data.videoMetadata || { title: null, channel: null, url: '' },
+        data.analysis,
+        data.status,
+        jobId
+      );
+      
+      // Generate proper Open Graph tags
+      return generateOpenGraphTags(socialData);
+    }
+  } catch (error) {
+    console.error('Failed to fetch job data for metadata:', error);
+  }
+  
+  // Fallback to basic metadata if fetching fails
   return {
     title: "Video Analysis - ShouldIWatchThis",
     description: "AI-powered YouTube video analysis and trust scoring",

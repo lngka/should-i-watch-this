@@ -31,7 +31,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ jobId: str
 		console.log(`Found job: ${jobId}, status: ${job.status}`);
 		
 		// Calculate elapsed time
-		const elapsedTime = Date.now() - job.createdAt.getTime();
+		// For completed jobs, use the time from creation to completion (updatedAt)
+		// For running/pending jobs, use the time from creation to now
+		const elapsedTime = job.status === "COMPLETED" 
+			? job.updatedAt.getTime() - job.createdAt.getTime()
+			: Date.now() - job.createdAt.getTime();
 		
 		// Check for video record independently of analysis (for transcripts saved during running jobs)
 		let videoRecord = null;

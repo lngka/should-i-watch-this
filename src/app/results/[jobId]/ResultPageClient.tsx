@@ -652,7 +652,7 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 												{getStatusBadge(status)}
 												{status === "COMPLETED" && (
 													<span className="text-sm text-muted-foreground">
-														• {formatElapsedTime(data.elapsedTime)}
+														• Processed in {formatElapsedTime(data.elapsedTime)}
 													</span>
 												)}
 											</div>

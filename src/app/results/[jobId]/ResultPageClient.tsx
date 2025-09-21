@@ -618,40 +618,33 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 								<p className="text-muted-foreground">Job ID: {jobId}</p>
 							</div>
 
-							{/* Video Information and Status */}
-							<div className="grid lg:grid-cols-2 gap-8 mb-8">
-								{/* Video Details */}
-								<div className="space-y-6">
-									{/* Video Information */}
-									<div className="space-y-4">
-										{data.videoMetadata.title && (
-											<h2 className="text-2xl font-bold text-foreground leading-tight">
-												{data.videoMetadata.title}
-											</h2>
-										)}
-										{data.videoMetadata.channel && (
-											<p className="text-muted-foreground">
-												by <span className="font-medium text-foreground">{data.videoMetadata.channel}</span>
-											</p>
-										)}
-										{analysis?.language && (
-											<div>
-												<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
-													🌐 {analysis.language}
-												</span>
-											</div>
-										)}
-									</div>
+							{/* Video Information Header */}
+							<div className="mb-8">
+								{/* Video Title and Channel */}
+								<div className="mb-6">
+									{data.videoMetadata.title && (
+										<h2 className="text-3xl font-bold text-foreground leading-tight mb-3">
+											{data.videoMetadata.title}
+										</h2>
+									)}
+									{data.videoMetadata.channel && (
+										<p className="text-lg text-muted-foreground mb-4">
+											by <span className="font-medium text-foreground">{data.videoMetadata.channel}</span>
+										</p>
+									)}
+								</div>
 
+								{/* Status and Metadata Row */}
+								<div className="flex flex-wrap items-center gap-4 mb-6">
 									{/* Status Indicator */}
 									<div className="flex items-center space-x-3">
-										<div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-pink-500 to-red-500 rounded-full">
+										<div className="flex items-center justify-center w-10 h-10 bg-gradient-to-r from-pink-500 to-red-500 rounded-full">
 											{status === "COMPLETED" ? (
-												<Sparkles className="w-6 h-6 text-white" />
+												<Sparkles className="w-5 h-5 text-white" />
 											) : status === "FAILED" ? (
-												<XCircle className="w-6 h-6 text-white" />
+												<XCircle className="w-5 h-5 text-white" />
 											) : (
-												<Loader2 className="w-6 h-6 text-white animate-spin" />
+												<Loader2 className="w-5 h-5 text-white animate-spin" />
 											)}
 										</div>
 										<div>
@@ -663,13 +656,20 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 													</span>
 												)}
 											</div>
-											<p className="text-sm text-muted-foreground mt-1">
+											<p className="text-sm text-muted-foreground">
 												{status === "COMPLETED" ? "Analysis complete" : 
 												 status === "FAILED" ? "Analysis failed" :
 												 status === "RUNNING" ? "Analyzing content..." : "Initializing..."}
 											</p>
 										</div>
 									</div>
+
+									{/* Language Badge */}
+									{analysis?.language && (
+										<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+											🌐 {analysis.language}
+										</span>
+									)}
 
 									{/* Action Button */}
 									<a 
@@ -682,57 +682,58 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 										Watch on YouTube
 									</a>
 								</div>
-
-								{/* Video Transcript Preview */}
-								<div className="space-y-6">
-									{/* Video Transcript Preview */}
-									{data.transcript && (
-										<div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-xl p-6 border border-primary/20">
-											<div className="flex items-start justify-between mb-4">
-												<h3 className="text-lg font-semibold text-foreground">Video Transcript</h3>
-												<button 
-													onClick={() => copyToClipboard(data.transcript!)}
-													className="inline-flex items-center px-3 py-1 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2 text-sm"
-												>
-													{copySuccess ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-													{copySuccess ? "Copied!" : "Copy"}
-												</button>
-											</div>
-											<div className="bg-muted/50 rounded-lg border border-border p-4 max-h-[200px] overflow-y-auto">
-												<div className="space-y-2">
-													{formatTranscript(data.transcript).slice(0, 3).map((paragraph, index) => (
-														<p 
-															key={index} 
-															className="text-xs leading-relaxed text-muted-foreground first-letter:capitalize"
-														>
-															{paragraph}
-														</p>
-													))}
-													{formatTranscript(data.transcript).length > 3 && (
-														<p className="text-xs text-muted-foreground italic">
-															... and {formatTranscript(data.transcript).length - 3} more paragraphs
-														</p>
-													)}
-												</div>
-											</div>
-										</div>
-									)}
-
-									{/* Running Analysis Preview */}
-									{status === "RUNNING" && (
-										<div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-6">
-											<div className="flex items-center space-x-3 mb-3">
-												<Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-												<h3 className="text-lg font-semibold text-foreground">Analysis in Progress</h3>
-											</div>
-											<p className="text-muted-foreground">
-												We&apos;re analyzing this video with AI to provide you with a comprehensive summary, 
-												trust score, and fact-checked claims. This usually takes 2-5 minutes.
-											</p>
-										</div>
-									)}
-								</div>
 							</div>
+
+							{/* Video Transcript Preview */}
+							{data.transcript && (
+								<div className="mb-8">
+									<div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-xl p-6 border border-primary/20">
+										<div className="flex items-start justify-between mb-4">
+											<h3 className="text-lg font-semibold text-foreground">Video Transcript</h3>
+											<button 
+												onClick={() => copyToClipboard(data.transcript!)}
+												className="inline-flex items-center px-3 py-1 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2 text-sm"
+											>
+												{copySuccess ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+												{copySuccess ? "Copied!" : "Copy"}
+											</button>
+										</div>
+										<div className="bg-muted/50 rounded-lg border border-border p-4 max-h-[200px] overflow-y-auto">
+											<div className="space-y-2">
+												{formatTranscript(data.transcript).slice(0, 3).map((paragraph, index) => (
+													<p 
+														key={index} 
+														className="text-xs leading-relaxed text-muted-foreground first-letter:capitalize"
+													>
+														{paragraph}
+													</p>
+												))}
+												{formatTranscript(data.transcript).length > 3 && (
+													<p className="text-xs text-muted-foreground italic">
+														... and {formatTranscript(data.transcript).length - 3} more paragraphs
+													</p>
+												)}
+											</div>
+										</div>
+									</div>
+								</div>
+							)}
+
+							{/* Running Analysis Preview */}
+							{status === "RUNNING" && (
+								<div className="mb-8">
+									<div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-6">
+										<div className="flex items-center space-x-3 mb-3">
+											<Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+											<h3 className="text-lg font-semibold text-foreground">Analysis in Progress</h3>
+										</div>
+										<p className="text-muted-foreground">
+											We&apos;re analyzing this video with AI to provide you with a comprehensive summary, 
+											trust score, and fact-checked claims. This usually takes 2-5 minutes.
+										</p>
+									</div>
+								</div>
+							)}
 
 							{/* Embedded Video Player */}
 							<div className="relative w-full mb-8" style={{ paddingBottom: '56.25%' }}>

@@ -5,7 +5,7 @@ export interface SocialMediaData {
   description: string;
   image: string;
   url: string;
-  type: 'video' | 'article';
+  type: 'video.other' | 'article';
 }
 
 /**
@@ -70,7 +70,7 @@ export function generateSocialMediaData(
     description,
     image: thumbnail || `${baseUrl}/og-default.svg`, // Fallback image
     url: resultUrl,
-    type: 'video'
+    type: 'video.other'
   };
 }
 

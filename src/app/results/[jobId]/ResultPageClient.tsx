@@ -1,10 +1,8 @@
 "use client";
 import TopNavigation from "@/components/TopNavigation";
-import { getYouTubeThumbnail } from "@/lib/social-sharing";
 import { addSearchToHistory } from "@/lib/user-session";
 import { extractVideoId } from "@/lib/utils";
 import { AlertTriangle, ArrowRight, CheckCircle, Clock, Copy, ExternalLink, FileText, Loader2, Shield, Sparkles, XCircle } from "lucide-react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
 
@@ -577,34 +575,6 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 								</div>
 							)}
 
-							{/* Transcript Section - Show even for failed analyses */}
-							{data.transcript && (
-								<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
-									<div className="flex items-center justify-between mb-6">
-										<h2 className="text-3xl font-bold text-foreground">Video Transcript</h2>
-										<button 
-											onClick={() => copyToClipboard(data.transcript!)}
-											className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
-										>
-											{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-											{copySuccess ? "Copied!" : "Copy"}
-										</button>
-									</div>
-									
-									<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
-										<div className="space-y-4">
-											{formatTranscript(data.transcript).map((paragraph, index) => (
-												<p 
-													key={index} 
-													className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
-												>
-													{paragraph}
-												</p>
-											))}
-										</div>
-									</div>
-								</div>
-							)}
 						</div>
 					)}
 
@@ -648,26 +618,29 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 								<p className="text-muted-foreground">Job ID: {jobId}</p>
 							</div>
 
-							<div className="grid lg:grid-cols-3 gap-8">
-								{/* Video Thumbnail and Info */}
-								<div className="lg:col-span-1 space-y-6">
-									{/* Video Thumbnail */}
-									<div className="relative group">
-										<Image
-											src={getYouTubeThumbnail(data.videoMetadata.url, 'hqdefault') || '/og-default.svg'}
-											alt={data.videoMetadata.title || "Video thumbnail"}
-											width={480}
-											height={360}
-											className="w-full rounded-xl border border-border shadow-lg"
-										/>
-										{/* Play overlay */}
-										<div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
-											<div className="w-16 h-16 bg-white/90 rounded-full flex items-center justify-center">
-												<svg className="w-6 h-6 text-black ml-1" fill="currentColor" viewBox="0 0 24 24">
-													<path d="M8 5v14l11-7z"/>
-												</svg>
+							{/* Video Information and Status */}
+							<div className="grid lg:grid-cols-2 gap-8 mb-8">
+								{/* Video Details */}
+								<div className="space-y-6">
+									{/* Video Information */}
+									<div className="space-y-4">
+										{data.videoMetadata.title && (
+											<h2 className="text-2xl font-bold text-foreground leading-tight">
+												{data.videoMetadata.title}
+											</h2>
+										)}
+										{data.videoMetadata.channel && (
+											<p className="text-muted-foreground">
+												by <span className="font-medium text-foreground">{data.videoMetadata.channel}</span>
+											</p>
+										)}
+										{analysis?.language && (
+											<div>
+												<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
+													🌐 {analysis.language}
+												</span>
 											</div>
-										</div>
+										)}
 									</div>
 
 									{/* Status Indicator */}
@@ -703,67 +676,45 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 										href={data.videoMetadata.url}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2 w-full justify-center"
+										className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
 									>
 										<ExternalLink className="w-4 h-4" />
 										Watch on YouTube
 									</a>
 								</div>
 
-								{/* Video Details and Analysis Preview */}
-								<div className="lg:col-span-2 space-y-6">
-									{/* Video Information */}
-									<div className="space-y-4">
-										{data.videoMetadata.title && (
-											<h2 className="text-2xl font-bold text-foreground leading-tight">
-												{data.videoMetadata.title}
-											</h2>
-										)}
-										{data.videoMetadata.channel && (
-											<p className="text-muted-foreground">
-												by <span className="font-medium text-foreground">{data.videoMetadata.channel}</span>
-											</p>
-										)}
-										{analysis?.language && (
-											<div>
-												<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
-													🌐 {analysis.language}
-												</span>
-											</div>
-										)}
-									</div>
-
-									{/* Analysis Preview */}
-									{status === "COMPLETED" && analysis && (
+								{/* Video Transcript Preview */}
+								<div className="space-y-6">
+									{/* Video Transcript Preview */}
+									{data.transcript && (
 										<div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-xl p-6 border border-primary/20">
 											<div className="flex items-start justify-between mb-4">
-												<h3 className="text-lg font-semibold text-foreground">Analysis Summary</h3>
-												<div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getTrustScoreBg(analysis.trustScore)}`}>
-													<Shield className="w-4 h-4 mr-1" />
-													<span className={getTrustScoreColor(analysis.trustScore)}>
-														{analysis.trustScore}/100
-													</span>
+												<h3 className="text-lg font-semibold text-foreground">Video Transcript</h3>
+												<button 
+													onClick={() => copyToClipboard(data.transcript!)}
+													className="inline-flex items-center px-3 py-1 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2 text-sm"
+												>
+													{copySuccess ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+													{copySuccess ? "Copied!" : "Copy"}
+												</button>
+											</div>
+											<div className="bg-muted/50 rounded-lg border border-border p-4 max-h-[200px] overflow-y-auto">
+												<div className="space-y-2">
+													{formatTranscript(data.transcript).slice(0, 3).map((paragraph, index) => (
+														<p 
+															key={index} 
+															className="text-xs leading-relaxed text-muted-foreground first-letter:capitalize"
+														>
+															{paragraph}
+														</p>
+													))}
+													{formatTranscript(data.transcript).length > 3 && (
+														<p className="text-xs text-muted-foreground italic">
+															... and {formatTranscript(data.transcript).length - 3} more paragraphs
+														</p>
+													)}
 												</div>
 											</div>
-											<p className="text-foreground leading-relaxed mb-3">{analysis.oneLiner}</p>
-											{analysis.bulletPoints && analysis.bulletPoints.length > 0 && (
-												<div className="space-y-2">
-													<h4 className="text-sm font-medium text-muted-foreground">Key Points:</h4>
-													<ul className="space-y-1">
-														{analysis.bulletPoints.slice(0, 3).map((point: string, i: number) => (
-															<li key={i} className="flex items-start space-x-2 text-sm text-muted-foreground">
-																<div className="w-1.5 h-1.5 bg-primary rounded-full mt-2 flex-shrink-0"></div>
-																<span>{point}</span>
-															</li>
-														))}
-														{analysis.bulletPoints.length > 3 && (
-															<li className="text-xs text-muted-foreground ml-3">
-																+{analysis.bulletPoints.length - 3} more points below
-															</li>
-														)}
-													</ul>
-												</div>
-											)}
 										</div>
 									)}
 
@@ -780,66 +731,49 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 											</p>
 										</div>
 									)}
+								</div>
+							</div>
 
-									{/* Embedded Video Player */}
-									<div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-										<iframe
-											src={`https://www.youtube.com/embed/${extractVideoId(data.videoMetadata.url)}`}
-											title={data.videoMetadata.title || "YouTube Video"}
-											className="absolute top-0 left-0 w-full h-full rounded-xl border border-border"
-											allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-											allowFullScreen
-										/>
+							{/* Embedded Video Player */}
+							<div className="relative w-full mb-8" style={{ paddingBottom: '56.25%' }}>
+								<iframe
+									src={`https://www.youtube.com/embed/${extractVideoId(data.videoMetadata.url)}`}
+									title={data.videoMetadata.title || "YouTube Video"}
+									className="absolute top-0 left-0 w-full h-full rounded-xl border border-border"
+									allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+									allowFullScreen
+								/>
+							</div>
+
+							{/* Scroll indicator for completed analysis */}
+							{status === "COMPLETED" && analysis && (
+								<div className="text-center mb-8">
+									<div className="inline-flex items-center space-x-2 text-sm text-muted-foreground">
+										<span>Scroll down for detailed analysis</span>
+										<svg className="w-4 h-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+										</svg>
 									</div>
 								</div>
-							</div>
+							)}
 						</div>
 					)}
 
-					{/* Transcript Section - Show as soon as transcript is available */}
-					{data.transcript && (
-						<div className="bg-card rounded-2xl shadow-xl border border-border p-8 mb-8">
-							<div className="flex items-center justify-between mb-6">
-								<div className="flex items-center space-x-3">
-									<h2 className="text-3xl font-bold text-foreground">Video Transcript</h2>
-									{status === "RUNNING" && (
-										<span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200">
-											<Clock className="w-4 h-4 mr-2" />
-											Analysis in progress
-										</span>
-									)}
-								</div>
-								<button 
-									onClick={() => copyToClipboard(data.transcript!)}
-									className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-lg hover:from-pink-600 hover:to-red-600 transition-colors gap-2"
-								>
-									{copySuccess ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-									{copySuccess ? "Copied!" : "Copy"}
-								</button>
-							</div>
-							
-							<div className="bg-muted/50 rounded-xl border border-border p-6 max-h-[600px] overflow-y-auto">
-								<div className="space-y-4">
-									{formatTranscript(data.transcript).map((paragraph, index) => (
-										<p 
-											key={index} 
-											className="text-sm leading-relaxed text-muted-foreground first-letter:capitalize whitespace-pre-wrap"
-										>
-											{paragraph}
-										</p>
-									))}
-								</div>
-							</div>
-						</div>
-					)}
 
 					{/* Analysis Section - Show only when completed */}
 					{status === "COMPLETED" && analysis && (
 						<div className="space-y-8">
+							{/* Visual separator */}
+							<div className="border-t border-border/50 pt-8">
+								<div className="text-center mb-8">
+									<h2 className="text-2xl font-semibold text-foreground mb-2">Detailed Analysis</h2>
+									<p className="text-muted-foreground">Complete breakdown of the video content and fact-checking results</p>
+								</div>
+							</div>
 							{/* Summary Section */}
 							<div className="bg-card rounded-2xl shadow-xl border border-border p-8">
 								<div className="flex items-center justify-between mb-6">
-									<h2 className="text-3xl font-bold text-foreground">Analysis Summary</h2>
+									<h2 className="text-3xl font-bold text-foreground">Complete Analysis</h2>
 									{analysis.language && analysis.language !== 'English' && (
 										<div className="text-sm text-muted-foreground">
 											<span className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-muted-foreground">

@@ -1,4 +1,4 @@
-import franc from 'franc';
+import { franc } from 'franc-min';
 
 export interface LanguageInfo {
 	language: string;
@@ -44,9 +44,10 @@ export async function detectLanguage(
 			return { language: 'English', languageCode: 'en', confidence: 0.5 };
 		}
 
-		// Use franc for language detection
+		// Use franc-min for language detection
 		const detectedLang = franc(combinedText);
-		const confidence = franc.alle(combinedText)[0]?.score || 0;
+		// franc-min doesn't provide confidence scores, so use a reasonable default
+		const confidence = 0.85;
 
 		// Map to our internal format
 		const mapped = LANGUAGE_MAP[detectedLang];
@@ -54,7 +55,7 @@ export async function detectLanguage(
 			return {
 				language: mapped.language,
 				languageCode: mapped.languageCode,
-				confidence: Math.min(confidence, 0.95) // Cap confidence at 95%
+				confidence: confidence
 			};
 		}
 

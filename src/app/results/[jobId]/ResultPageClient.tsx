@@ -45,6 +45,7 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 	const [progressPercent, setProgressPercent] = useState(0);
 	const [copySuccess, setCopySuccess] = useState(false);
 	const [isRetrying, setIsRetrying] = useState(false);
+	const [isRetryingLanguage, setIsRetryingLanguage] = useState(false);
 	const pollCountRef = useRef(0);
 
 	const formatElapsedTime = (milliseconds: number) => {
@@ -69,6 +70,38 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 			setTimeout(() => setCopySuccess(false), 2000);
 		} catch (err) {
 			console.error('Failed to copy text: ', err);
+		}
+	};
+
+	const retryLanguageDetection = async () => {
+		if (!data?.analysis || isRetryingLanguage) return;
+		
+		setIsRetryingLanguage(true);
+		try {
+			const res = await fetch("/api/analyze/retry", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jobId }),
+			});
+			
+			if (res.ok) {
+				const result = await res.json();
+				console.log("Language retry successful:", result);
+				
+				// Refresh the data by polling again
+				if (pollOnceRef.current) {
+					pollOnceRef.current();
+				}
+			} else {
+				const errorData = await res.json();
+				console.error("Language retry failed:", errorData);
+				setError(errorData.error || "Failed to retry language detection");
+			}
+		} catch (error) {
+			console.error("Language retry error:", error);
+			setError("Failed to retry language detection");
+		} finally {
+			setIsRetryingLanguage(false);
 		}
 	};
 
@@ -776,10 +809,28 @@ export default function ResultPageClient({ params }: { params: Promise<{ jobId: 
 								<div className="flex items-center justify-between mb-6">
 									<h2 className="text-3xl font-bold text-foreground">Complete Analysis</h2>
 									{analysis.language && analysis.language !== 'English' && (
-										<div className="text-sm text-muted-foreground">
+										<div className="flex items-center gap-3">
 											<span className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-muted-foreground">
 												🌐 Content analyzed in {analysis.language}
 											</span>
+											<button
+												onClick={retryLanguageDetection}
+												disabled={isRetryingLanguage}
+												className="inline-flex items-center px-3 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 rounded-md transition-colors gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+												title="Redetect language and redo analysis"
+											>
+												{isRetryingLanguage ? (
+													<>
+														<Loader2 className="w-3 h-3 animate-spin" />
+														Retrying...
+													</>
+												) : (
+													<>
+														<ArrowRight className="w-3 h-3" />
+														Retry
+													</>
+												)}
+											</button>
 										</div>
 									)}
 								</div>

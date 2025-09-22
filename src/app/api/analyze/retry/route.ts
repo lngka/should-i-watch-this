@@ -7,11 +7,14 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+	let jobId: string | undefined;
+	
 	try {
-		const { jobId } = await req.json();
-		if (!jobId || typeof jobId !== "string") {
+		const { jobId: extractedJobId } = await req.json();
+		if (!extractedJobId || typeof extractedJobId !== "string") {
 			return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
 		}
+		jobId = extractedJobId;
 
 		console.log(`Retrying analysis for job: ${jobId}`);
 
@@ -147,17 +150,19 @@ export async function POST(req: Request) {
 		const message = error instanceof Error ? error.message : "Unknown error occurred";
 		
 		// Restore job status to completed if retry failed (keep original results)
-		try {
-			await prisma.job.update({ 
-				where: { id: jobId }, 
-				data: { 
-					status: "COMPLETED", 
-					errorMessage: null // Clear any error message since we're keeping original results
-				} 
-			});
-			console.log(`Job ${jobId} status restored to COMPLETED after retry failure`);
-		} catch (updateError) {
-			console.error("Failed to restore job status after retry error:", updateError);
+		if (jobId) {
+			try {
+				await prisma.job.update({ 
+					where: { id: jobId }, 
+					data: { 
+						status: "COMPLETED", 
+						errorMessage: null // Clear any error message since we're keeping original results
+					} 
+				});
+				console.log(`Job ${jobId} status restored to COMPLETED after retry failure`);
+			} catch (updateError) {
+				console.error("Failed to restore job status after retry error:", updateError);
+			}
 		}
 
 		return NextResponse.json({ error: message }, { status: 500 });

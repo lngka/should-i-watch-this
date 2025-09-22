@@ -1,5 +1,4 @@
-
-import { franc } from 'franc-min';
+import franc from 'franc';
 
 export interface LanguageInfo {
 	language: string;
@@ -28,7 +27,10 @@ const LANGUAGE_MAP: Record<string, { language: string; languageCode: string }> =
 	'und': { language: 'English', languageCode: 'en' }, // franc returns 'und' for undetermined
 };
 
-export async function detectLanguage(text: string, metadata?: { title?: string | null; description?: string | null }): Promise<LanguageInfo> {
+export async function detectLanguage(
+	text: string, 
+	metadata?: { title?: string | null; description?: string | null }
+): Promise<LanguageInfo> {
 	try {
 		// Combine text with metadata for better detection
 		const combinedText = [
@@ -42,25 +44,22 @@ export async function detectLanguage(text: string, metadata?: { title?: string |
 			return { language: 'English', languageCode: 'en', confidence: 0.5 };
 		}
 
-		// Try franc first for better accuracy
-		try {
-			const detectedLang = franc(combinedText);
-			
-			// Map to our internal format
-			const mapped = LANGUAGE_MAP[detectedLang];
-			if (mapped && detectedLang !== 'und') { // Only use franc if we got a valid result
-				return {
-					language: mapped.language,
-					languageCode: mapped.languageCode,
-					confidence: 0.85 // franc-min doesn't provide confidence scores, so use a reasonable default
-				};
-			}
-		} catch (francError) {
-			console.log('Franc detection failed, falling back to regex:', francError);
+		// Use franc for language detection
+		const detectedLang = franc(combinedText);
+		const confidence = franc.alle(combinedText)[0]?.score || 0;
+
+		// Map to our internal format
+		const mapped = LANGUAGE_MAP[detectedLang];
+		if (mapped) {
+			return {
+				language: mapped.language,
+				languageCode: mapped.languageCode,
+				confidence: Math.min(confidence, 0.95) // Cap confidence at 95%
+			};
 		}
 
-		// Fallback to regex-based detection
-		return detectLanguageFallback(combinedText);
+		// Fallback to English if language not supported
+		return { language: 'English', languageCode: 'en', confidence: 0.5 };
 
 	} catch (error) {
 		console.error('Language detection failed:', error);
@@ -68,71 +67,86 @@ export async function detectLanguage(text: string, metadata?: { title?: string |
 	}
 }
 
-// Fallback regex-based detection (the original logic)
-function detectLanguageFallback(combinedText: string): LanguageInfo {
-	const languagePatterns = {
-		'Vietnamese': /[ạảãâầấậẩẫăằắặẳẵệểễịỉĩọỏõôồốộổỗơờớợởỡụủũưừứựửữỵỷỹđ]/i,
-		'English': /^[a-zA-Z\s.,!?'"()-]+$/,
-		'Spanish': /[ñáéíóúü]/i,
-		'French': /[àâäéèêëïîôöùûüÿç]/i,
-		'German': /[äöüß]/i,
-		'Italian': /[àèéìíîòóù]/i,
-		'Portuguese': /[ãõç]/i,
-		'Russian': /[а-яё]/i,
-		'Chinese': /[\u4e00-\u9fff]/,
-		'Japanese': /[\u3040-\u309f\u30a0-\u30ff]/,
-		'Korean': /[\uac00-\ud7af]/,
-		'Arabic': /[\u0600-\u06ff]/,
-		'Hindi': /[\u0900-\u097f]/,
-	};
+// Fallback regex-based detection for when franc is not available
+export function detectLanguageFallback(
+	text: string, 
+	metadata?: { title?: string | null; description?: string | null }
+): LanguageInfo {
+	try {
+		const combinedText = [
+			text,
+			metadata?.title || '',
+			metadata?.description || ''
+		].filter(Boolean).join(' ');
 
-	// Check for Vietnamese first (has unique diacritics that might be confused with other languages)
-	if (languagePatterns.Vietnamese.test(combinedText)) {
-		return { language: 'Vietnamese', languageCode: 'vi', confidence: 0.9 };
-	}
+		// Improved patterns with better specificity
+		const languagePatterns = {
+			'Vietnamese': /[ạảãâầấậẩẫăằắặẳẵệểễịỉĩọỏõôồốộổỗơờớợởỡụủũưừứựửữỵỷỹđ]/i,
+			'German': /[äöüß]/i,
+			'Spanish': /[ñáéíóúü]/i,
+			'French': /[àâäéèêëïîôöùûüÿç]/i,
+			'Italian': /[àèéìíîòóù]/i,
+			'Portuguese': /[ãõç]/i,
+			'Russian': /[а-яё]/i,
+			'Chinese': /[\u4e00-\u9fff]/,
+			'Japanese': /[\u3040-\u309f\u30a0-\u30ff]/,
+			'Korean': /[\uac00-\ud7af]/,
+			'Arabic': /[\u0600-\u06ff]/,
+			'Hindi': /[\u0900-\u097f]/,
+		};
 
-	// Check for non-Latin scripts
-	if (languagePatterns.Chinese.test(combinedText)) {
-		return { language: 'Chinese', languageCode: 'zh', confidence: 0.9 };
-	}
-	if (languagePatterns.Japanese.test(combinedText)) {
-		return { language: 'Japanese', languageCode: 'ja', confidence: 0.9 };
-	}
-	if (languagePatterns.Korean.test(combinedText)) {
-		return { language: 'Korean', languageCode: 'ko', confidence: 0.9 };
-	}
-	if (languagePatterns.Arabic.test(combinedText)) {
-		return { language: 'Arabic', languageCode: 'ar', confidence: 0.9 };
-	}
-	if (languagePatterns.Hindi.test(combinedText)) {
-		return { language: 'Hindi', languageCode: 'hi', confidence: 0.9 };
-	}
-	if (languagePatterns.Russian.test(combinedText)) {
-		return { language: 'Russian', languageCode: 'ru', confidence: 0.9 };
-	}
+		// Check for Vietnamese first (has unique diacritics)
+		if (languagePatterns.Vietnamese.test(combinedText)) {
+			return { language: 'Vietnamese', languageCode: 'vi', confidence: 0.9 };
+		}
 
-	// Check for Latin-based languages
-	// Check German first since it shares 'ü' with Spanish but has unique characters
-	if (languagePatterns.German.test(combinedText)) {
-		return { language: 'German', languageCode: 'de', confidence: 0.8 };
-	}
-	if (languagePatterns.Spanish.test(combinedText)) {
-		return { language: 'Spanish', languageCode: 'es', confidence: 0.8 };
-	}
-	if (languagePatterns.French.test(combinedText)) {
-		return { language: 'French', languageCode: 'fr', confidence: 0.8 };
-	}
-	if (languagePatterns.Italian.test(combinedText)) {
-		return { language: 'Italian', languageCode: 'it', confidence: 0.8 };
-	}
-	if (languagePatterns.Portuguese.test(combinedText)) {
-		return { language: 'Portuguese', languageCode: 'pt', confidence: 0.8 };
-	}
+		// Check for non-Latin scripts
+		if (languagePatterns.Chinese.test(combinedText)) {
+			return { language: 'Chinese', languageCode: 'zh', confidence: 0.9 };
+		}
+		if (languagePatterns.Japanese.test(combinedText)) {
+			return { language: 'Japanese', languageCode: 'ja', confidence: 0.9 };
+		}
+		if (languagePatterns.Korean.test(combinedText)) {
+			return { language: 'Korean', languageCode: 'ko', confidence: 0.9 };
+		}
+		if (languagePatterns.Arabic.test(combinedText)) {
+			return { language: 'Arabic', languageCode: 'ar', confidence: 0.9 };
+		}
+		if (languagePatterns.Hindi.test(combinedText)) {
+			return { language: 'Hindi', languageCode: 'hi', confidence: 0.9 };
+		}
+		if (languagePatterns.Russian.test(combinedText)) {
+			return { language: 'Russian', languageCode: 'ru', confidence: 0.9 };
+		}
 
-	// Default to English if no specific patterns match
-	return { language: 'English', languageCode: 'en', confidence: 0.7 };
+		// Check for Latin-based languages (German first to avoid conflicts)
+		if (languagePatterns.German.test(combinedText)) {
+			return { language: 'German', languageCode: 'de', confidence: 0.8 };
+		}
+		if (languagePatterns.Spanish.test(combinedText)) {
+			return { language: 'Spanish', languageCode: 'es', confidence: 0.8 };
+		}
+		if (languagePatterns.French.test(combinedText)) {
+			return { language: 'French', languageCode: 'fr', confidence: 0.8 };
+		}
+		if (languagePatterns.Italian.test(combinedText)) {
+			return { language: 'Italian', languageCode: 'it', confidence: 0.8 };
+		}
+		if (languagePatterns.Portuguese.test(combinedText)) {
+			return { language: 'Portuguese', languageCode: 'pt', confidence: 0.8 };
+		}
+
+		// Default to English
+		return { language: 'English', languageCode: 'en', confidence: 0.7 };
+
+	} catch (error) {
+		console.error('Fallback language detection failed:', error);
+		return { language: 'English', languageCode: 'en', confidence: 0.5 };
+	}
 }
 
+// Keep the existing function for backward compatibility
 export function getLanguageSpecificPrompts(languageInfo: LanguageInfo) {
 	const language = languageInfo.language;
 	
